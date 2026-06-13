@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>YouTube Link Organizer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+
+<!-- ============ APP SHELL ============ -->
+<div id="app" class="app">
+
+  <!-- Mobile drawer backdrop -->
+  <div id="mobileBackdrop" class="mobile-backdrop"></div>
+
+  <!-- ============ SIDEBAR ============ -->
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar__head">
+      <div class="brand">
+        <span class="brand__mark">▶</span>
+        <span class="brand__name">Link Organizer</span>
+      </div>
+      <button id="collapseBtn" class="icon-btn" title="Collapse sidebar" aria-label="Collapse sidebar">
+        <svg viewBox="0 0 24 24" width="18" height="18"><path d="M14 7l-5 5 5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+
+    <button id="createListBtn" class="create-list-btn" title="New list">
+      <svg viewBox="0 0 24 24" width="16" height="16"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <span>New List</span>
+    </button>
+
+    <nav class="sidebar__nav">
+      <ul id="listContainer" class="list-container"></ul>
+      <p id="listEmptyMsg" class="sidebar__msg" hidden>Please sign in to see your lists.</p>
+    </nav>
+
+    <div class="sidebar__foot">
+      <div class="settings-wrap">
+        <button id="settingsBtn" class="icon-btn" title="Settings" aria-label="Settings">
+          <svg viewBox="0 0 24 24" width="18" height="18"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 008 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H2a2 2 0 110-4h.09A1.65 1.65 0 003.6 8a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H8a1.65 1.65 0 001-1.51V2a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V8a1.65 1.65 0 001.51 1H22a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+        </button>
+        <div id="settingsMenu" class="popover settings-menu" hidden>
+          <button class="popover__item" data-action="theme">
+            <span class="popover__ico" id="themeIco">🌙</span>
+            <span>Theme: <b id="themeLabel">Dark</b></span>
+          </button>
+          <button class="popover__item" data-action="archived"><span class="popover__ico">🗄️</span><span>Archived Lists</span></button>
+          <button class="popover__item" data-action="templates"><span class="popover__ico">⚙️</span><span>Manage Templates</span></button>
+          <div class="popover__divider"></div>
+          <button class="popover__item" data-action="export"><span class="popover__ico">↑</span><span>Export Data</span></button>
+          <button class="popover__item" data-action="import"><span class="popover__ico">↓</span><span>Import Data</span></button>
+          <div class="popover__divider"></div>
+          <div class="popover__slider">
+            <label>Card size</label>
+            <input type="range" id="cardSizeSlider" min="250" max="450" step="10" value="320" />
+            <span id="cardSizeVal" class="mono">320</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="user-wrap">
+        <button id="signInBtn" class="signin-btn">
+          <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M21.35 11.1h-9.18v2.92h5.27c-.23 1.4-1.64 4.1-5.27 4.1a5.93 5.93 0 010-11.86c1.83 0 3.06.78 3.76 1.45l2.56-2.47C18.97 3.6 16.86 2.6 14.17 2.6a9.4 9.4 0 100 18.8c5.43 0 9.02-3.82 9.02-9.2 0-.62-.07-1.09-.16-1.56z"/></svg>
+          <span>Sign in</span>
+        </button>
+        <button id="userChip" class="user-chip" title="Account" hidden>
+          <span id="userInitial" class="user-chip__initial">U</span>
+        </button>
+        <div id="userPopover" class="popover user-popover" hidden>
+          <div class="user-popover__name" id="userName">User</div>
+          <div class="user-popover__uid mono" id="userUid">—</div>
+          <button id="logoutBtn" class="btn btn--ghost btn--block">Log out</button>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <main class="main">
+    <header class="topbar">
+      <button id="hamburgerBtn" class="icon-btn hamburger" aria-label="Open menu">
+        <svg viewBox="0 0 24 24" width="20" height="20"><path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+      <button id="expandSidebarBtn" class="icon-btn expand-sidebar" title="Expand sidebar" hidden>
+        <svg viewBox="0 0 24 24" width="18" height="18"><path d="M10 7l5 5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="topbar__title">
+        <span id="activeListEmoji" class="topbar__emoji"></span>
+        <h1 id="activeListName" class="topbar__name">—</h1>
+        <span id="activeListBadge" class="badge" hidden></span>
+      </div>
+      <div class="topbar__search">
+        <svg viewBox="0 0 24 24" width="16" height="16"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <input id="searchInput" type="text" placeholder="Search videos…" autocomplete="off" />
+        <button id="searchClear" class="search-clear" hidden aria-label="Clear search">×</button>
+      </div>
+      <button id="addNoteBtn" class="btn btn--ghost" title="Add a note (no video)">
+        <svg viewBox="0 0 24 24" width="16" height="16"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M5 4h11l3 3v13H5z"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M8.5 10h7M8.5 14h5"/></svg>
+        <span class="btn__label">Note</span>
+      </button>
+      <button id="addVideoBtn" class="btn btn--primary">
+        <svg viewBox="0 0 24 24" width="16" height="16"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <span class="btn__label">Add Video</span>
+      </button>
+    </header>
+
+    <section class="grid-wrap">
+      <div id="videoGrid" class="video-grid"></div>
+      <div id="gridEmpty" class="grid-empty" hidden>
+        <div class="grid-empty__art">▶</div>
+        <p id="gridEmptyMsg">No videos yet.</p>
+        <p class="grid-empty__hint" id="gridEmptyHint">Add a YouTube link to get started — or just paste one anywhere.</p>
+      </div>
+    </section>
+
+    <!-- ============ STATUS BAR ============ -->
+    <footer id="statusBar" class="statusbar">
+      <div id="statusChips" class="statusbar__chips"></div>
+      <button id="statusGear" class="statusbar__gear" title="Configure status bar" aria-label="Configure status bar">
+        <svg viewBox="0 0 24 24" width="14" height="14"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+      </button>
+    </footer>
+  </main>
+</div>
+
+<!-- ============ MODAL HOST ============ -->
+<div id="modalHost"></div>
+<div id="confirmHost"></div>
+
+<!-- ============ TOASTS ============ -->
+<div id="toastHost" class="toast-host"></div>
+
+<!-- ============ LOADING OVERLAY ============ -->
+<div id="loadingOverlay" class="loading-overlay" hidden>
+  <div class="spinner"></div>
+  <p id="loadingMsg" class="loading-overlay__msg">Loading…</p>
+</div>
+
+<!-- ============ SCRIPTS ============ -->
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+
+<script src="js/config.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/youtube.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/lists.js"></script>
+<script src="js/templates.js"></script>
+<script src="js/notes.js"></script>
+<script src="js/videos.js"></script>
+<script src="js/transfer.js"></script>
+<script src="js/statusbar.js"></script>
+<script src="js/boot.js"></script>
+</body>
+</html>
