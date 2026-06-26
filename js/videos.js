@@ -43,6 +43,7 @@ const Videos = {
       Object.entries(all).forEach(([vid, v]) => {
         if (!v || typeof v !== "object") return;
         if (v.type === "note") { v._key = vid; State.videos[vid] = v; return; }
+        if (v.type === "channel") { v._key = vid; State.videos[vid] = v; return; }
         // skip orphan/corrupt nodes (e.g. {order:N} with no real video data)
         if (!v.title && !v.thumbnail && !v.youtubeId) return;
         v._key = vid; v.youtubeId = v.youtubeId || vid;
@@ -292,6 +293,7 @@ const Videos = {
 
   cardHtml(v) {
     if (v.type === "note") return this.noteCardHtml(v);
+    if (v.type === "channel") return this.channelCardHtml(v);
     const hasNote = !!(v.note && v.note.trim());
     const avatar = v.channelThumbnailUrl
       ? `<img class="vcard__avatar" src="${Utils.escapeHtml(v.channelThumbnailUrl)}" alt="" referrerpolicy="no-referrer" />`
@@ -360,11 +362,55 @@ const Videos = {
       </div>`;
   },
 
+  channelCardHtml(v) {
+    const avatar = v.channelThumbnailUrl || v.thumbnail || "";
+    const name = v.title || v.channelName || "Channel";
+    const stats = [
+      v.subscribers && v.subscribers !== "0" ? `${v.subscribers} subscribers` : null,
+      v.videoCount && v.videoCount !== "0" ? `${v.videoCount} videos` : null,
+    ].filter(Boolean).join(" • ");
+    return `
+      <div class="vcard vcard--channel" data-id="${v._key || v.id}" data-channel-item="1"
+           data-title="${Utils.escapeHtml(name.toLowerCase())}" data-channel="${Utils.escapeHtml((v.channelName || "").toLowerCase())}">
+        <div class="vchan__banner" data-act="open" ${v.banner ? `style="background-image:url('${Utils.escapeHtml(v.banner)}')"` : ""}>
+          <span class="vchan__tag">📺 Channel</span>
+        </div>
+        <div class="vcard__actions">
+          <button class="vcard__abtn" data-act="menu" title="More">
+            <svg viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="5" r="1.7" fill="currentColor"/><circle cx="12" cy="12" r="1.7" fill="currentColor"/><circle cx="12" cy="19" r="1.7" fill="currentColor"/></svg>
+          </button>
+        </div>
+        <div class="vchan__body" data-act="open">
+          ${avatar
+            ? `<img class="vchan__avatar" src="${Utils.escapeHtml(avatar)}" alt="" referrerpolicy="no-referrer" />`
+            : `<div class="vchan__avatar is-ph">${Utils.escapeHtml(name.charAt(0).toUpperCase())}</div>`}
+          <div class="vchan__meta">
+            <div class="vchan__name">${Utils.escapeHtml(name)}</div>
+            <div class="vchan__stats">${Utils.escapeHtml(stats)}</div>
+          </div>
+        </div>
+      </div>`;
+  },
+
   wireCards() {
     const grid = document.getElementById("videoGrid");
     grid.querySelectorAll(".vcard").forEach((card) => {
       const vid = card.dataset.id;
       const isNote = card.dataset.note === "1";
+      const isChannel = card.dataset.channelItem === "1";
+
+      // channel cards: open the channel on YouTube; only a 3-dot menu (no note btn)
+      if (isChannel) {
+        const open = () => this.openChannelOnYouTube(vid);
+        card.querySelectorAll('[data-act="open"]').forEach((el) => {
+          el.addEventListener("dblclick", open);
+          let lastTap = 0;
+          el.addEventListener("touchend", () => { const now = Date.now(); if (now - lastTap < 320) open(); lastTap = now; });
+        });
+        card.querySelector('[data-act="menu"]').addEventListener("click", (e) => { e.stopPropagation(); this.openCardMenu(e.currentTarget, vid); });
+        return;
+      }
+
       // double-click / double-tap face → open (note editor for notes, YouTube for videos)
       const face = card.querySelector(".vcard__thumb, .vcard__noteface");
       const openFace = () => { if (isNote) Notes.openInline(vid); else this.openOnYouTube(vid); };
@@ -380,6 +426,14 @@ const Videos = {
       card.querySelector('[data-act="note"]').addEventListener("click", (e) => { e.stopPropagation(); Notes.openInline(vid); });
       card.querySelector('[data-act="menu"]').addEventListener("click", (e) => { e.stopPropagation(); this.openCardMenu(e.currentTarget, vid); });
     });
+  },
+
+  openChannelOnYouTube(vid) {
+    const v = State.videos[vid];
+    if (!v) return;
+    const url = v.channelId ? `https://www.youtube.com/channel/${v.channelId}`
+      : v.customUrl ? `https://www.youtube.com/${v.customUrl}` : "https://www.youtube.com";
+    window.open(url, "_blank", "noopener");
   },
 
   updateCardNoteState(vid) {
@@ -406,6 +460,17 @@ const Videos = {
   openCardMenu(btn, vid) {
     const v = State.videos[vid];
     if (!v) return;
+    if (v.type === "channel") {
+      const items = [
+        { key: "open", ico: "📺", text: "Open Channel", onClick: () => this.openChannelOnYouTube(vid) },
+        { key: "refresh", ico: "🔄", text: "Refresh", onClick: () => this.refreshChannel(vid) },
+        { key: "move", ico: "📂", text: "Move to list…", onClick: () => this.openMoveMenu(btn, vid) },
+        { divider: true },
+        { key: "delete", ico: "🗑️", text: "Delete", danger: true, onClick: () => this.deleteVideo(vid) },
+      ];
+      UI.floatingMenu(btn, items, { align: "right" });
+      return;
+    }
     if (v.type === "note") {
       const items = [
         { key: "open", ico: "📖", text: "Open Note", onClick: () => Notes.openInline(vid) },
@@ -561,6 +626,69 @@ const Videos = {
     } catch (e) { UI.toast("Couldn't create note: " + e.message, "error"); }
   },
 
+  // ---------- ADD CHANNEL ----------
+  openAddChannelModal() {
+    if (!State.uid) { UI.toast("Please sign in first", "info"); return; }
+    const l = State.lists[State.activeListId];
+    if (!l) { UI.toast("Select a list first", "info"); return; }
+    UI.openModal({
+      title: "Add Channel",
+      bodyHtml: `
+        <div class="field">
+          <label>YouTube channel link or @handle</label>
+          <input class="input" id="acUrl" placeholder="https://www.youtube.com/@channel" />
+          <p class="hint">Paste a channel URL, an @handle, or a channel ID.</p>
+        </div>`,
+      footHtml: `<button class="btn btn--ghost" data-act="cancel">Cancel</button>
+                 <button class="btn btn--primary" data-act="add">Add Channel</button>`,
+      onMount: (modal, close) => {
+        const input = modal.querySelector("#acUrl");
+        input.focus();
+        const submit = async () => {
+          const v = input.value.trim();
+          if (!v) { input.focus(); return; }
+          close();
+          await this.addChannel(v);
+        };
+        modal.querySelector('[data-act="add"]').addEventListener("click", submit);
+        modal.querySelector('[data-act="cancel"]').addEventListener("click", () => close());
+        input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
+      },
+    });
+  },
+
+  async addChannel(input) {
+    const listId = State.activeListId;
+    if (!listId) return;
+    UI.showLoading("Fetching channel…");
+    try {
+      const data = await YT.fetchChannelData(input);
+      if (!data) { UI.toast("Channel not found — check the link or handle", "error"); return; }
+      if (Object.values(State.videos).some((v) => v.type === "channel" && v.channelId === data.channelId)) {
+        UI.toast("That channel is already in this list", "info"); return;
+      }
+      const minOrder = Math.min(0, ...Object.values(State.videos).map((v) => v.order ?? 0));
+      const record = Object.assign({ type: "channel", order: minOrder - 1, timestamp: Date.now(), createdAt: Date.now() }, data);
+      await DB.videos(listId).push().set(record);
+      UI.toast("Channel added", "success");
+    } catch (e) { UI.toast("Couldn't add channel: " + e.message, "error"); }
+    finally { UI.hideLoading(); }
+  },
+
+  async refreshChannel(vid) {
+    const v = State.videos[vid];
+    if (!v || v.type !== "channel") return;
+    UI.showLoading("Refreshing channel…");
+    try {
+      const data = await YT.fetchChannelData(v.channelId || v.customUrl || v.title);
+      if (!data) { UI.toast("Channel unavailable on YouTube — kept existing data", "info"); return; }
+      delete data.order;
+      await DB.video(State.activeListId, vid).update(data);
+      UI.toast("Channel refreshed", "success", 1500);
+    } catch (e) { UI.toast("Refresh failed: " + e.message, "error"); }
+    finally { UI.hideLoading(); }
+  },
+
   // ---------- CREATE A BLANK NOTE AND OPEN IT (Notion-style) ----------
   async createNoteAndOpen() {
     if (!State.uid) { UI.toast("Please sign in first", "info"); return; }
@@ -594,9 +722,10 @@ const Videos = {
   // ---------- DELETE ----------
   async deleteVideo(vid) {
     const v = State.videos[vid];
-    const isNote = v && v.type === "note";
-    const label = isNote ? (v.name || "this note") : (v?.title || "this video");
-    const ok = await UI.confirm({ title: isNote ? "Delete note?" : "Delete video?", message: `“${Utils.escapeHtml(String(label).slice(0,80))}” will be removed from this list.`, confirmText: "Delete" });
+    const kind = v && v.type === "note" ? "note" : (v && v.type === "channel" ? "channel" : "video");
+    const label = kind === "note" ? (v.name || "this note") : (v?.title || ("this " + kind));
+    const titleMap = { note: "Delete note?", channel: "Delete channel?", video: "Delete video?" };
+    const ok = await UI.confirm({ title: titleMap[kind], message: `“${Utils.escapeHtml(String(label).slice(0,80))}” will be removed from this list.`, confirmText: "Delete" });
     if (!ok) return;
     await DB.video(State.activeListId, vid).remove();
     UI.toast("Video deleted", "success", 1500);
@@ -611,7 +740,8 @@ const Videos = {
     if (!v) return;
     const srcListId = State.activeListId;
     const srcList = State.lists[srcListId];
-    const isNote = v.type === "note";
+    // notes & channels skip video-only logic (dedupe by youtubeId, playlist re-pull)
+    const isNote = v.type === "note" || v.type === "channel";
     UI.showLoading("Moving…");
     try {
       const destVidsSnap = await DB.videos(destListId).once("value");

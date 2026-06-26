@@ -61,6 +61,45 @@ const YT = {
     };
   },
 
+  // ---------- full channel data (for channel list items) ----------
+  async fetchChannelData(input) {
+    const p = Utils.parseChannelInput(input);
+    if (!p) return null;
+    let params = { part: "snippet,statistics,brandingSettings" };
+    if (p.kind === "id") params.id = p.value;
+    else if (p.kind === "handle") params.forHandle = p.value;
+    else if (p.kind === "user") params.forUsername = p.value;
+    else {
+      const sr = await this._get("search", { part: "snippet", type: "channel", q: p.value, maxResults: 1 });
+      const cid = sr.items && sr.items[0] && sr.items[0].id && sr.items[0].id.channelId;
+      if (!cid) return null;
+      params.id = cid;
+    }
+    const res = await this._get("channels", params);
+    const ch = res.items && res.items[0];
+    if (!ch) return null;
+    const sn = ch.snippet || {}, st = ch.statistics || {}, bs = ch.brandingSettings || {};
+    const avatar = this.bestThumb(sn.thumbnails);
+    return {
+      channelId: ch.id,
+      // `title` + `thumbnail` are intentionally set so the old app never treats
+      // this node as an orphan (its cleanup deletes typeless nodes lacking both).
+      title: sn.title || "Channel",
+      channelName: sn.title || "Channel",
+      thumbnail: avatar,
+      channelThumbnailUrl: avatar,
+      banner: (bs.image && bs.image.bannerExternalUrl) || "",
+      subscribers: st.hiddenSubscriberCount ? "—" : Utils.formatCount(st.subscriberCount || 0),
+      subscriberCountRaw: Number(st.subscriberCount || 0),
+      videoCount: Utils.formatCount(st.videoCount || 0),
+      videoCountRaw: Number(st.videoCount || 0),
+      viewCountRaw: Number(st.viewCount || 0),
+      customUrl: sn.customUrl || "",
+      publishedAt: sn.publishedAt || "",
+      lastUpdated: Date.now(),
+    };
+  },
+
   // ---------- channel info (with shared avatar cache) ----------
   async fetchChannelInfo(channelId) {
     const out = { subscribers: "0", subscriberCountRaw: 0, channelThumbnailUrl: "" };
