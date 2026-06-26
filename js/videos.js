@@ -100,7 +100,10 @@ const Videos = {
   render() {
     const grid = document.getElementById("videoGrid");
     const empty = document.getElementById("gridEmpty");
+    const viewBar = document.getElementById("viewBar");
     const vids = this.orderedVideos();
+
+    if (!State.uid || vids.length === 0) { if (viewBar) viewBar.hidden = true; }
 
     if (!State.uid) {
       grid.innerHTML = "";
@@ -120,10 +123,169 @@ const Videos = {
       return;
     }
     empty.hidden = true;
-    grid.innerHTML = vids.map((v) => this.cardHtml(v)).join("");
-    this.applySearchFilter();
-    this.wireCards();
-    this.setupSortable();
+
+    // ---- Notion-style view: filter / sort / group ----
+    const list = State.lists[State.activeListId] || {};
+    const view = Grouping.normalize(list.view);
+    this._view = view;
+    this.renderViewBar(view);
+    const res = Grouping.apply(vids, view);
+
+    if (!res.grouped) {
+      grid.className = "video-grid";
+      grid.innerHTML = res.items.map((v) => this.cardHtml(v)).join("");
+      this.applySearchFilter();
+      this.wireCards();
+      // manual drag-reorder only in the default (manual, unfiltered) flat view
+      if (view.sort.field === "manual") this.setupSortable();
+      else this.teardownSortable();
+    } else {
+      grid.className = "video-grouped";
+      grid.innerHTML = res.groups.map((g) => this.groupHtml(g, view)).join("");
+      this.applySearchFilter();
+      this.wireCards();
+      this.wireGroups(view);
+      this.teardownSortable();
+      this.setupGroupSortable(view);
+    }
+  },
+
+  // ---------- VIEW BAR (group / sort / filter controls) ----------
+  renderViewBar(view) {
+    const bar = document.getElementById("viewBar");
+    if (!bar) return;
+    if (!State.uid || !State.activeListId) { bar.hidden = true; return; }
+    bar.hidden = false;
+    const F = Grouping.FIELDS;
+    const chip = (id, label, active) =>
+      `<button class="vb-chip ${active ? "is-active" : ""}" data-vb="${id}">${label}</button>`;
+    const groupLabel = view.group ? `Group: ${F[view.group].label}` : "Group";
+    const sortLabel = view.sort.field === "manual" ? "Sort" : `Sort: ${F[view.sort.field].label} ${view.sort.dir === "desc" ? "↓" : "↑"}`;
+    const filterLabel = view.filters.length ? `Filter · ${view.filters.length}` : "Filter";
+    bar.innerHTML =
+      chip("group", groupLabel, !!view.group) +
+      chip("sort", sortLabel, view.sort.field !== "manual") +
+      chip("filter", filterLabel, view.filters.length > 0) +
+      (Grouping.isDefault(view) ? "" : `<button class="vb-chip vb-reset" data-vb="reset">✕ Reset</button>`);
+    bar.querySelector('[data-vb="group"]').addEventListener("click", (e) => this.openGroupMenu(e.currentTarget, view));
+    bar.querySelector('[data-vb="sort"]').addEventListener("click", (e) => this.openSortMenu(e.currentTarget, view));
+    bar.querySelector('[data-vb="filter"]').addEventListener("click", (e) => this.openFilterMenu(e.currentTarget, view));
+    const reset = bar.querySelector('[data-vb="reset"]');
+    if (reset) reset.addEventListener("click", () => this.saveView(Grouping.defaultView()));
+  },
+
+  openGroupMenu(btn, view) {
+    const F = Grouping.FIELDS;
+    const items = [{ key: "_none", ico: "🚫", text: "No grouping", onClick: () => this.saveView({ ...view, group: null, groupOrder: [], collapsed: {} }) }];
+    Grouping.groupableFields().forEach((id) => items.push({
+      key: id, ico: F[id].ico, text: F[id].label,
+      onClick: () => this.saveView({ ...view, group: id, groupOrder: [], collapsed: {} }),
+    }));
+    UI.floatingMenu(btn, items, { align: "left" });
+  },
+
+  openSortMenu(btn, view) {
+    const F = Grouping.FIELDS;
+    const items = [{ key: "manual", ico: "↕️", text: "Manual" + (view.sort.field === "manual" ? " ✓" : ""), onClick: () => this.saveView({ ...view, sort: { field: "manual", dir: "asc" } }) }];
+    Grouping.sortableFields().forEach((id) => {
+      const isCur = view.sort.field === id;
+      const nextDir = isCur && view.sort.dir === "asc" ? "desc" : "asc";
+      const mark = isCur ? (view.sort.dir === "desc" ? " ↓" : " ↑") : "";
+      items.push({ key: id, ico: F[id].ico, text: F[id].label + mark, onClick: () => this.saveView({ ...view, sort: { field: id, dir: nextDir } }) });
+    });
+    UI.floatingMenu(btn, items, { align: "left" });
+  },
+
+  openFilterMenu(btn, view) {
+    const F = Grouping.FIELDS;
+    const items = [];
+    if (view.filters.length) {
+      view.filters.forEach((f, i) => items.push({ key: "rm" + i, ico: "✕", text: `${F[f.field].label} ${f.op} “${f.value}”`, onClick: () => { const nf = view.filters.slice(); nf.splice(i, 1); this.saveView({ ...view, filters: nf }); } }));
+      items.push({ divider: true });
+    }
+    items.push({ label: "Add filter" });
+    Grouping.filterableFields().forEach((id) => items.push({ key: id, ico: F[id].ico, text: F[id].label, onClick: () => this.addFilter(view, id) }));
+    UI.floatingMenu(btn, items, { align: "left" });
+  },
+
+  async addFilter(view, fieldId) {
+    const f = Grouping.FIELDS[fieldId];
+    if (f.kind === "bool") { this.saveView({ ...view, filters: [...view.filters, { field: fieldId, op: "is", value: true }] }); return; }
+    // suggest distinct values for select-like fields
+    let val;
+    if (f.kind === "select") {
+      const vals = [...new Set(Object.values(State.videos).map((v) => String(f.get(v) || "").trim()).filter(Boolean))].sort();
+      if (vals.length) {
+        const items = vals.slice(0, 30).map((x) => ({ key: x, ico: "•", text: x, onClick: () => this.saveView({ ...view, filters: [...view.filters, { field: fieldId, op: "is", value: x }] }) }));
+        UI.floatingMenu(document.querySelector('#viewBar [data-vb="filter"]'), items, { align: "left" });
+        return;
+      }
+    }
+    val = await UI.prompt({ title: `Filter by ${f.label}`, label: `${f.label} contains`, confirmText: "Apply" });
+    if (val == null || !val.trim()) return;
+    this.saveView({ ...view, filters: [...view.filters, { field: fieldId, op: "contains", value: val.trim() }] });
+  },
+
+  async saveView(view) {
+    const id = State.activeListId;
+    if (!id) return;
+    const v = Grouping.normalize(view);
+    if (State.lists[id]) State.lists[id].view = v;
+    this.render();
+    try { await DB.list(id).update({ view: v }); } catch (e) { /* local already applied */ }
+  },
+
+  // ---------- GROUP rendering ----------
+  groupHtml(group, view) {
+    const cards = group.items.map((v) => this.cardHtml(v)).join("");
+    return `
+      <section class="vgroup ${group.collapsed ? "is-collapsed" : ""}" data-group="${Utils.escapeHtml(group.key)}">
+        <header class="vgroup__head">
+          <button class="vgroup__toggle" title="Collapse / expand"><span class="vgroup__chev">▾</span></button>
+          ${view.sort.field === "manual" ? '<span class="vgroup__handle" title="Drag to reorder groups"><svg viewBox="0 0 24 24" width="13" height="13"><circle cx="9" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg></span>' : ""}
+          <span class="vgroup__label">${Utils.escapeHtml(group.label)}</span>
+          <span class="vgroup__count">${group.items.length}</span>
+        </header>
+        <div class="vgroup__body video-grid">${cards}</div>
+      </section>`;
+  },
+
+  wireGroups(view) {
+    document.querySelectorAll("#videoGrid .vgroup").forEach((sec) => {
+      const key = sec.dataset.group;
+      sec.querySelector(".vgroup__toggle").addEventListener("click", () => {
+        sec.classList.toggle("is-collapsed");
+        const collapsed = { ...(view.collapsed || {}) };
+        if (sec.classList.contains("is-collapsed")) collapsed[key] = true; else delete collapsed[key];
+        // persist quietly without a full re-render (DOM already toggled)
+        const v = Grouping.normalize({ ...view, collapsed });
+        if (State.lists[State.activeListId]) State.lists[State.activeListId].view = v;
+        this._view = v;
+        DB.list(State.activeListId).update({ view: v }).catch(() => {});
+      });
+    });
+  },
+
+  setupGroupSortable(view) {
+    if (this.groupSortable) { this.groupSortable.destroy(); this.groupSortable = null; }
+    if (view.sort.field !== "manual") return;   // groups only reorder in manual sort
+    const grid = document.getElementById("videoGrid");
+    this.groupSortable = Sortable.create(grid, {
+      handle: ".vgroup__handle",
+      draggable: ".vgroup",
+      animation: 160,
+      onEnd: () => {
+        const order = [...document.querySelectorAll("#videoGrid .vgroup")].map((s) => s.dataset.group);
+        const v = Grouping.normalize({ ...this._view, groupOrder: order });
+        if (State.lists[State.activeListId]) State.lists[State.activeListId].view = v;
+        this._view = v;
+        DB.list(State.activeListId).update({ view: v }).catch(() => {});
+      },
+    });
+  },
+
+  teardownSortable() {
+    if (this.sortable) { this.sortable.destroy(); this.sortable = null; }
   },
 
   cardHtml(v) {
@@ -603,6 +765,11 @@ const Videos = {
       if (!term) { card.classList.remove("hidden"); return; }
       const hay = `${card.dataset.title} ${card.dataset.channel} ${card.dataset.yt || ""} ${card.dataset.body || ""}`.toLowerCase();
       card.classList.toggle("hidden", !hay.includes(term));
+    });
+    // hide group sections that have no visible cards after a search
+    document.querySelectorAll("#videoGrid .vgroup").forEach((sec) => {
+      const anyVisible = [...sec.querySelectorAll(".vcard")].some((c) => !c.classList.contains("hidden"));
+      sec.classList.toggle("group-hidden", !anyVisible);
     });
   },
 

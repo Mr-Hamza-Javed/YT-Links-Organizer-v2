@@ -317,6 +317,45 @@ input[type="range"] { accent-color: var(--accent); }
   gap: 20px 18px; align-content: start;
 }
 
+/* ---------- view bar (group / sort / filter) ---------- */
+.view-bar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: -4px 0 16px; position: sticky; top: -20px; z-index: 5;
+  padding: 6px 0; background: var(--bg-sunken);
+}
+.vb-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 30px; padding: 0 12px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text-2);
+  font-size: 12.5px; font-weight: 550; transition: background var(--speed), border-color var(--speed), color var(--speed);
+}
+.vb-chip:hover { background: var(--bg-hover); color: var(--text); }
+.vb-chip.is-active { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.vb-reset { color: var(--text-3); }
+.vb-reset:hover { color: var(--accent); }
+
+/* ---------- grouped grid ---------- */
+.video-grouped { display: flex; flex-direction: column; gap: 22px; }
+.vgroup.group-hidden { display: none; }
+.vgroup__head {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 12px;
+  padding-bottom: 6px; border-bottom: 1px solid var(--border-soft);
+  position: sticky; top: 30px; background: var(--bg-sunken); z-index: 4;
+}
+.vgroup__toggle { border: none; background: transparent; color: var(--text-2); padding: 2px; display: grid; place-items: center; border-radius: 5px; }
+.vgroup__toggle:hover { background: var(--bg-hover); }
+.vgroup__chev { display: inline-block; transition: transform var(--speed); font-size: 12px; }
+.vgroup.is-collapsed .vgroup__chev { transform: rotate(-90deg); }
+.vgroup.is-collapsed .vgroup__body { display: none; }
+.vgroup__handle { cursor: grab; color: var(--text-3); display: inline-flex; padding: 2px; }
+.vgroup__handle:active { cursor: grabbing; }
+.vgroup__handle svg { fill: currentColor; }
+.vgroup__label { font-weight: 650; font-size: 14px; letter-spacing: -.01em; }
+.vgroup__count {
+  font-size: 11.5px; color: var(--text-3); background: var(--bg-elevated);
+  border: 1px solid var(--border-soft); border-radius: 20px; padding: 1px 8px; font-weight: 600;
+}
+
 .vcard {
   background: var(--bg-elevated); border: 1px solid var(--border-soft); border-radius: var(--radius);
   overflow: hidden; position: relative; transition: border-color var(--speed), box-shadow var(--speed), transform var(--speed);
