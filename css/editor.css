@@ -222,6 +222,19 @@
 .ed-sw.fg { font-weight: 800; }
 .ed-sw:hover { outline: 2px solid var(--accent-soft); }
 
+/* ---------- table toolbar ---------- */
+.ed-tabletb {
+  position: absolute; z-index: 30; display: flex; gap: 3px; padding: 4px;
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  border-radius: 8px; box-shadow: var(--shadow-pop);
+}
+.ed-ttb {
+  height: 26px; padding: 0 9px; border: none; background: transparent; color: var(--text);
+  border-radius: 6px; font-size: 12px; font-weight: 600; white-space: nowrap;
+}
+.ed-ttb:hover { background: var(--bg-hover); }
+.ed-ttb.is-danger { color: var(--accent); }
+
 /* ---------- block drag handle ---------- */
 .ed-handle {
   position: absolute; z-index: 25; display: flex; align-items: center; justify-content: center;

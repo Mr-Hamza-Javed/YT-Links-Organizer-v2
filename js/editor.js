@@ -621,9 +621,10 @@
           if (!transaction.getMeta("ed-trailing")) { self._dirty = true; self._scheduleSave(); }
           self._ensureTrailing();
           self._handleSlash();
+          self._syncTableToolbar();
           self._hideBubble();   // bubble only reappears once a selection settles
         },
-        onSelectionUpdate: () => { self._handleSlash(); },
+        onSelectionUpdate: () => { self._handleSlash(); self._syncTableToolbar(); },
         onBlur: () => { setTimeout(() => self._maybeHideBubble(), 150); },
       });
 
@@ -631,7 +632,7 @@
 
       // Bubble toolbar shows only after a selection is *finished* (mouseup /
       // keyboard selection) — repositioning mid-drag caused the jitter.
-      this._onScroll = () => { self._hideSlash(); self._hideBubble(); };
+      this._onScroll = () => { self._hideSlash(); self._hideBubble(); self._syncTableToolbar(); };
       this._onMouseUp = () => setTimeout(() => self._syncBubble(), 0);
       this._onKeyUp = (e) => {
         if (e.shiftKey || (e.key || "").startsWith("Arrow") || ((e.ctrlKey || e.metaKey) && (e.key || "").toLowerCase() === "a")) self._syncBubble();
@@ -694,7 +695,7 @@
 
     async close() {
       try { await this._persist(); } catch (_) {}
-      this._hideSlash(); this._hideBubble(); this._closeBlockMenu();
+      this._hideSlash(); this._hideBubble(); this._closeBlockMenu(); this._hideTableToolbar();
       const scroller = document.querySelector("#editorPage .ed-scroll");
       if (scroller && this._onScroll) scroller.removeEventListener("scroll", this._onScroll, true);
       if (this._onKeyDown) document.removeEventListener("keydown", this._onKeyDown);
@@ -708,7 +709,7 @@
       document.body.classList.remove("editor-open");
       this._itemId = this._listId = this._item = null;
       this._onKeyDown = this._onScroll = this._onMouseUp = this._onKeyUp = null;
-      this._bubbleEl = null; this._handleEl = null; this._handleBlock = null;  // children of #editorPage; rebuilt on next open
+      this._bubbleEl = null; this._handleEl = null; this._handleBlock = null; this._tableTbEl = null;  // children of #editorPage; rebuilt on next open
     },
 
     async _copyAll() {
@@ -919,6 +920,55 @@
       const lk = el.querySelector('[data-act="link"]');
       if (lk) lk.classList.toggle("is-on", ed.isActive("link"));
     },
+
+    /* ---------------- table toolbar (add/remove rows & columns) ---------------- */
+    _activeTableEl() {
+      const ed = this._editor;
+      try {
+        const at = ed.view.domAtPos(ed.state.selection.from);
+        let n = at && at.node;
+        if (n && n.nodeType === 3) n = n.parentElement;
+        const cell = n && n.closest && n.closest("td,th");
+        if (cell) return cell.closest("table");
+      } catch (_) {}
+      return null;
+    },
+    _syncTableToolbar() {
+      const ed = this._editor;
+      if (!ed || !ed.isActive || !ed.isActive("table")) return this._hideTableToolbar();
+      const tbl = this._activeTableEl();
+      if (!tbl) return this._hideTableToolbar();
+      let el = this._tableTbEl;
+      if (!el) {
+        el = document.createElement("div");
+        el.className = "ed-tabletb"; el.hidden = true;
+        el.innerHTML = [
+          ["addColumnAfter", "＋ Col", "Insert column"],
+          ["addRowAfter", "＋ Row", "Insert row"],
+          ["deleteColumn", "－ Col", "Delete column"],
+          ["deleteRow", "－ Row", "Delete row"],
+          ["toggleHeaderRow", "H", "Toggle header row"],
+          ["deleteTable", "🗑", "Delete table"],
+        ].map(([k, t, title]) => `<button class="ed-ttb ${k === "deleteTable" ? "is-danger" : ""}" data-k="${k}" title="${title}">${t}</button>`).join("");
+        document.getElementById("editorPage").appendChild(el);
+        this._tableTbEl = el;
+        el.addEventListener("mousedown", (e) => e.preventDefault());
+        el.querySelectorAll(".ed-ttb").forEach((b) => b.addEventListener("click", () => {
+          const k = b.dataset.k;
+          const c = ed.chain().focus();
+          if (typeof c[k] === "function") c[k]().run();
+          this._syncTableToolbar();
+        }));
+      }
+      el.hidden = false;
+      const b = tbl.getBoundingClientRect();
+      const pr = document.getElementById("editorPage").getBoundingClientRect();
+      let top = b.top - pr.top - el.offsetHeight - 6;
+      if (top < 52) top = b.top - pr.top + 6;
+      el.style.left = Math.max(12, b.left - pr.left) + "px";
+      el.style.top = top + "px";
+    },
+    _hideTableToolbar() { if (this._tableTbEl) this._tableTbEl.hidden = true; },
 
     /* ---------------- block drag handle (Notion-style ⋮⋮) ---------------- */
     _initHandle() {
