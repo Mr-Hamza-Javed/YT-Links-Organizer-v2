@@ -342,7 +342,7 @@
         return {
           youtubeId: { default: null }, title: { default: "" }, thumbnail: { default: "" },
           channelName: { default: "" }, channelThumbnailUrl: { default: "" }, views: { default: "" },
-          duration: { default: "" }, publishedAt: { default: "" },
+          duration: { default: "" }, publishedAt: { default: "" }, width: { default: null },
         };
       },
       parseHTML() { return [{ tag: "div[data-video-card]" }]; },
@@ -355,8 +355,41 @@
           dom.className = "ed-vcard";
           dom.setAttribute("data-video-card", "");
           dom.contentEditable = "false";
-          const draw = (a) => { dom.innerHTML = vcardInnerHtml(a); };
+          const applyWidth = (w) => { dom.style.width = w ? w + "px" : ""; };
+          const draw = (a) => {
+            dom.innerHTML = vcardInnerHtml(a);
+            // resize handle (drag to change width)
+            const grip = document.createElement("div");
+            grip.className = "ed-vcard__resize";
+            grip.contentEditable = "false";
+            dom.appendChild(grip);
+            grip.addEventListener("mousedown", (ev) => {
+              ev.preventDefault(); ev.stopPropagation();
+              const startX = ev.clientX;
+              const startW = dom.getBoundingClientRect().width;
+              const max = (dom.parentElement ? dom.parentElement.getBoundingClientRect().width : 760);
+              const onMove = (m) => {
+                let w = Math.round(startW + (m.clientX - startX));
+                w = Math.max(220, Math.min(w, Math.round(max)));
+                applyWidth(w); dom.dataset._w = w;
+              };
+              const onUp = () => {
+                document.removeEventListener("mousemove", onMove, true);
+                document.removeEventListener("mouseup", onUp, true);
+                const w = parseInt(dom.dataset._w || "0", 10);
+                if (w && typeof getPos === "function") {
+                  try {
+                    editor.view.dispatch(editor.state.tr.setNodeMarkup(getPos(), undefined, Object.assign({}, node.attrs, { width: w })));
+                    NoteEditor._dirty = true; NoteEditor._scheduleSave();
+                  } catch (_) {}
+                }
+              };
+              document.addEventListener("mousemove", onMove, true);
+              document.addEventListener("mouseup", onUp, true);
+            });
+          };
           draw(node.attrs);
+          applyWidth(node.attrs.width);
           // Hydrate a card that only has an id (e.g. re-parsed from old markdown).
           if (node.attrs.youtubeId && (!node.attrs.title || !node.attrs.thumbnail)) {
             YT.fetchVideoData(node.attrs.youtubeId).then((d) => {
@@ -366,15 +399,15 @@
                 channelThumbnailUrl: d.channelThumbnailUrl || "", views: d.views || "",
                 duration: d.duration || "", publishedAt: d.publishedAt || "",
               });
-              draw(merged);
+              draw(merged); applyWidth(merged.width);
               try {
                 if (typeof getPos === "function") {
-                  editor.view.dispatch(editor.state.tr.setNodeMarkup(getPos(), undefined, merged));
+                  editor.view.dispatch(editor.state.tr.setNodeMarkup(getPos(), undefined, merged).setMeta("ed-trailing", true).setMeta("addToHistory", false));
                 }
               } catch (_) { /* visual update already applied */ }
             }).catch(() => {});
           }
-          return { dom };
+          return { dom, ignoreMutation: () => true };
         };
       },
     });
@@ -466,11 +499,11 @@
           <button class="ed-btn ed-btn--primary" id="edDone">Done</button>
         </div>
         <div class="ed-scroll">
+          ${isNote ? "" : this._videoCoverHtml(item)}
           <div class="ed-doc">
-            ${isNote ? "" : `<div class="ed-vcard ed-vcard--context">${vcardInnerHtml(item)}</div>`}
             ${isNote
               ? `<textarea class="ed-title" id="edTitle" rows="1" placeholder="Untitled" spellcheck="false">${esc(this._titleVal)}</textarea>`
-              : `<h1 class="ed-title is-static">${esc(item.title || "Untitled")}</h1>`}
+              : `<h1 class="ed-title is-static">${esc(item.title || "Untitled")}</h1>${this._videoPropsHtml(item)}`}
             <div class="ed-body" id="edBody"></div>
           </div>
         </div>`;
@@ -480,6 +513,8 @@
       page.querySelector(".ed-back").addEventListener("click", () => self.close());
       page.querySelector("#edDone").addEventListener("click", () => self.close());
       page.querySelector("#edCopyMd").addEventListener("click", () => self._copyAll());
+      const propsToggle = page.querySelector("#edPropsToggle");
+      if (propsToggle) propsToggle.addEventListener("click", () => page.querySelector("#edProps").classList.toggle("is-collapsed"));
 
       if (isNote) {
         const titleEl = page.querySelector("#edTitle");
@@ -502,9 +537,32 @@
 
       this._buildEditor(page.querySelector("#edBody"), this._loadDoc(item));
 
-      // focus: empty new note -> title; otherwise the body
+      // always open scrolled to the very top (focusing 'end' used to jump to the middle)
+      const scroll = page.querySelector(".ed-scroll");
       if (isNote && !this._titleVal) page.querySelector("#edTitle").focus();
-      else if (this._editor) this._editor.commands.focus("end");
+      else if (this._editor) this._editor.commands.focus("start");
+      if (scroll) { scroll.scrollTop = 0; requestAnimationFrame(() => { scroll.scrollTop = 0; }); }
+    },
+
+    // ---- video page header (Notion-style cover + built-in properties) ----
+    _videoCoverHtml(item) {
+      const thumb = item.thumbnail || (item.youtubeId ? `https://i.ytimg.com/vi/${item.youtubeId}/hqdefault.jpg` : "");
+      if (!thumb) return "";
+      return `<div class="ed-cover"><img src="${esc(thumb)}" alt="" referrerpolicy="no-referrer" /></div>`;
+    },
+    _videoPropsHtml(item) {
+      const rows = [];
+      const add = (ico, k, v) => { if (v) rows.push(`<div class="ed-prop"><span class="ed-prop__k">${ico} ${esc(k)}</span><span class="ed-prop__v">${esc(v)}</span></div>`); };
+      add("📺", "Channel", item.channelName || "");
+      add("👁", "Views", item.views ? `${item.views} views` : "");
+      add("⏱", "Duration", item.duration || "");
+      add("🔔", "Subscribers", (item.subscribers && item.subscribers !== "0") ? `${item.subscribers} subs` : "");
+      add("📅", "Published", item.publishedAt ? Utils.formatDate(item.publishedAt) : "");
+      const watch = item.youtubeId ? `<div class="ed-prop"><a class="ed-prop__link" href="https://www.youtube.com/watch?v=${esc(item.youtubeId)}" target="_blank" rel="noopener">▶ Watch on YouTube</a></div>` : "";
+      return `<div class="ed-props" id="edProps">
+        <button class="ed-props__toggle" id="edPropsToggle"><span class="ed-props__chev">▾</span> Properties</button>
+        <div class="ed-props__body">${rows.join("")}${watch}</div>
+      </div>`;
     },
 
     _loadDoc(item) {
@@ -528,7 +586,8 @@
         extensions: [
           T.StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
           T.Placeholder.configure({
-            includeChildren: true,
+            includeChildren: false,
+            showOnlyCurrent: true,
             placeholder: ({ node }) => node.type.name === "heading" ? "Heading" : "Type '/' for commands…",
           }),
           T.Underline,
@@ -558,14 +617,46 @@
             return false;
           },
         },
-        onUpdate: () => { self._dirty = true; self._scheduleSave(); self._handleSlash(); },
-        onSelectionUpdate: () => { self._handleSlash(); self._updateBubble(); },
-        onBlur: () => { setTimeout(() => self._maybeHideBubble(), 120); },
+        onUpdate: ({ transaction }) => {
+          if (!transaction.getMeta("ed-trailing")) { self._dirty = true; self._scheduleSave(); }
+          self._ensureTrailing();
+          self._handleSlash();
+          self._hideBubble();   // bubble only reappears once a selection settles
+        },
+        onSelectionUpdate: () => { self._handleSlash(); },
+        onBlur: () => { setTimeout(() => self._maybeHideBubble(), 150); },
       });
 
-      this._onScroll = () => { self._hideSlash(); self._updateBubble(); };
+      this._ensureTrailing();
+
+      // Bubble toolbar shows only after a selection is *finished* (mouseup /
+      // keyboard selection) — repositioning mid-drag caused the jitter.
+      this._onScroll = () => { self._hideSlash(); self._hideBubble(); };
+      this._onMouseUp = () => setTimeout(() => self._syncBubble(), 0);
+      this._onKeyUp = (e) => {
+        if (e.shiftKey || (e.key || "").startsWith("Arrow") || ((e.ctrlKey || e.metaKey) && (e.key || "").toLowerCase() === "a")) self._syncBubble();
+      };
       const scroller = document.querySelector("#editorPage .ed-scroll");
       if (scroller) scroller.addEventListener("scroll", this._onScroll, true);
+      document.addEventListener("mouseup", this._onMouseUp, true);
+      this._editor.view.dom.addEventListener("keyup", this._onKeyUp, true);
+
+      this._initHandle();
+    },
+
+    // Always keep a typeable line after a table/embed/code block/divider so the
+    // user can escape it when it sits at the very end of the document.
+    _ensureTrailing() {
+      const ed = this._editor;
+      if (!ed) return;
+      const doc = ed.state.doc;
+      const last = doc.lastChild;
+      if (!last) return;
+      if (!["table", "videoCard", "horizontalRule", "codeBlock"].includes(last.type.name)) return;
+      try {
+        const para = ed.state.schema.nodes.paragraph.create();
+        ed.view.dispatch(ed.state.tr.insert(doc.content.size, para).setMeta("ed-trailing", true).setMeta("addToHistory", false));
+      } catch (_) {}
     },
 
     /* ---------------- saving ---------------- */
@@ -603,17 +694,21 @@
 
     async close() {
       try { await this._persist(); } catch (_) {}
-      this._hideSlash(); this._hideBubble();
+      this._hideSlash(); this._hideBubble(); this._closeBlockMenu();
       const scroller = document.querySelector("#editorPage .ed-scroll");
       if (scroller && this._onScroll) scroller.removeEventListener("scroll", this._onScroll, true);
       if (this._onKeyDown) document.removeEventListener("keydown", this._onKeyDown);
-      if (this._editor) { try { this._editor.destroy(); } catch (_) {} this._editor = null; }
+      if (this._onMouseUp) document.removeEventListener("mouseup", this._onMouseUp, true);
+      if (this._editor) {
+        if (this._onKeyUp) { try { this._editor.view.dom.removeEventListener("keyup", this._onKeyUp, true); } catch (_) {} }
+        try { this._editor.destroy(); } catch (_) {} this._editor = null;
+      }
       const page = document.getElementById("editorPage");
-      page.hidden = true; page.innerHTML = "";   // detaches slash/bubble menus too
+      page.hidden = true; page.innerHTML = "";   // detaches slash/bubble/handle menus too
       document.body.classList.remove("editor-open");
       this._itemId = this._listId = this._item = null;
-      this._onKeyDown = this._onScroll = null;
-      this._bubbleEl = null;   // was a child of #editorPage; rebuild on next open
+      this._onKeyDown = this._onScroll = this._onMouseUp = this._onKeyUp = null;
+      this._bubbleEl = null; this._handleEl = null; this._handleBlock = null;  // children of #editorPage; rebuilt on next open
     },
 
     async _copyAll() {
@@ -737,7 +832,7 @@
     },
 
     /* ---------------- bubble (selection) menu ---------------- */
-    _updateBubble() {
+    _syncBubble() {
       const ed = this._editor;
       if (!ed) return;
       const sel = ed.state.selection;
@@ -823,6 +918,160 @@
       el.querySelectorAll(".ed-bb[data-mark]").forEach((b) => b.classList.toggle("is-on", ed.isActive(b.dataset.mark)));
       const lk = el.querySelector('[data-act="link"]');
       if (lk) lk.classList.toggle("is-on", ed.isActive("link"));
+    },
+
+    /* ---------------- block drag handle (Notion-style ⋮⋮) ---------------- */
+    _initHandle() {
+      const self = this;
+      const ed = this._editor;
+      const page = document.getElementById("editorPage");
+      const scroller = page.querySelector(".ed-scroll");
+      const handle = document.createElement("div");
+      handle.className = "ed-handle";
+      handle.hidden = true;
+      handle.innerHTML = '<span class="ed-handle__grip" draggable="false">⋮⋮</span>';
+      page.appendChild(handle);
+      this._handleEl = handle;
+      this._handleBlock = null;
+
+      this._onHandleMove = (e) => {
+        if (self._handleDragging) return;
+        if (handle.contains(e.target)) return;
+        const blk = self._blockUnder(e.clientY);
+        if (!blk) { handle.hidden = true; self._handleBlock = null; return; }
+        self._handleBlock = blk;
+        const b = blk.getBoundingClientRect();
+        const pr = page.getBoundingClientRect();
+        handle.style.left = (b.left - pr.left - 28) + "px";
+        handle.style.top = (b.top - pr.top + Math.max(2, Math.min(7, (b.height - 22) / 2))) + "px";
+        handle.hidden = false;
+      };
+      scroller.addEventListener("mousemove", this._onHandleMove);
+      scroller.addEventListener("mouseleave", () => { if (!self._handleDragging) handle.hidden = true; });
+      handle.addEventListener("click", () => { if (self._handleSuppressClick) { self._handleSuppressClick = false; return; } self._openBlockMenu(); });
+      handle.addEventListener("mousedown", (e) => { e.preventDefault(); self._startBlockDrag(e); });
+    },
+
+    // the top-level block element under a viewport Y, found along the text column
+    _blockUnder(y) {
+      const ed = this._editor;
+      if (!ed) return null;
+      const dom = ed.view.dom;
+      const rect = dom.getBoundingClientRect();
+      const x = rect.left + Math.min(24, rect.width / 2);
+      let el = document.elementFromPoint(x, y);
+      if (!el || !dom.contains(el)) return null;
+      while (el && el.parentElement !== dom) el = el.parentElement;
+      return (el && el.parentElement === dom) ? el : null;
+    },
+
+    _blockPos(blk) {
+      const ed = this._editor;
+      try { const pos = ed.view.posAtDOM(blk, 0); return ed.state.doc.resolve(pos).before(1); }
+      catch (_) { return null; }
+    },
+
+    _startBlockDrag(startEvt) {
+      const self = this;
+      const ed = this._editor;
+      const srcBlk = this._handleBlock;
+      if (!srcBlk) return;
+      const srcPos = this._blockPos(srcBlk);
+      if (srcPos == null) return;
+      this._handleDragging = true;
+      this._closeBlockMenu();
+      document.body.classList.add("ed-dragging");
+      const page = document.getElementById("editorPage");
+      const ind = document.createElement("div");
+      ind.className = "ed-dropline"; ind.hidden = true;
+      page.appendChild(ind);
+      let targetPos = null, targetAfter = false;
+
+      const move = (e) => {
+        const blk = self._blockUnder(e.clientY);
+        if (!blk) { ind.hidden = true; targetPos = null; return; }
+        const b = blk.getBoundingClientRect();
+        const pr = page.getBoundingClientRect();
+        const after = e.clientY > b.top + b.height / 2;
+        ind.hidden = false;
+        ind.style.left = (b.left - pr.left) + "px";
+        ind.style.width = b.width + "px";
+        ind.style.top = ((after ? b.bottom : b.top) - pr.top) + "px";
+        targetPos = self._blockPos(blk); targetAfter = after;
+      };
+      const up = () => {
+        document.removeEventListener("mousemove", move, true);
+        document.removeEventListener("mouseup", up, true);
+        ind.remove();
+        document.body.classList.remove("ed-dragging");
+        self._handleDragging = false; self._handleSuppressClick = true;
+        if (self._handleEl) self._handleEl.hidden = true;
+        self._moveBlock(srcPos, targetPos, targetAfter);
+      };
+      document.addEventListener("mousemove", move, true);
+      document.addEventListener("mouseup", up, true);
+    },
+
+    _moveBlock(srcPos, tgtPos, after) {
+      const ed = this._editor;
+      if (!ed || srcPos == null || tgtPos == null) return;
+      const doc = ed.state.doc;
+      const srcNode = doc.nodeAt(srcPos);
+      const tgtNode = doc.nodeAt(tgtPos);
+      if (!srcNode || !tgtNode) return;
+      const srcEnd = srcPos + srcNode.nodeSize;
+      let insertPos = after ? tgtPos + tgtNode.nodeSize : tgtPos;
+      if (insertPos >= srcPos && insertPos <= srcEnd) return; // no-op on itself
+      const tr = ed.state.tr.delete(srcPos, srcEnd);
+      const mapped = tr.mapping.map(insertPos);
+      tr.insert(mapped, srcNode);
+      ed.view.dispatch(tr);
+      this._dirty = true; this._scheduleSave();
+    },
+
+    _openBlockMenu() {
+      const self = this;
+      const ed = this._editor;
+      const blk = this._handleBlock;
+      if (!ed || !blk) return;
+      const pos = this._blockPos(blk);
+      if (pos == null) return;
+      this._closeBlockMenu();
+      const nodeAt = () => ed.state.doc.nodeAt(pos);
+      const turn = (fn) => { try { fn(); } catch (_) {} self._closeBlockMenu(); };
+      const items = [
+        { ico: "¶", txt: "Text", fn: () => turn(() => ed.chain().focus().setTextSelection(pos + 1).setParagraph().run()) },
+        { ico: "H₁", txt: "Heading 1", fn: () => turn(() => ed.chain().focus().setTextSelection(pos + 1).setNode("heading", { level: 1 }).run()) },
+        { ico: "H₂", txt: "Heading 2", fn: () => turn(() => ed.chain().focus().setTextSelection(pos + 1).setNode("heading", { level: 2 }).run()) },
+        { ico: "H₃", txt: "Heading 3", fn: () => turn(() => ed.chain().focus().setTextSelection(pos + 1).setNode("heading", { level: 3 }).run()) },
+        { divider: true },
+        { ico: "⧉", txt: "Duplicate", fn: () => turn(() => { const n = nodeAt(); if (n) ed.chain().focus().insertContentAt(pos + n.nodeSize, n.toJSON()).run(); }) },
+        { ico: "🗑", txt: "Delete", danger: true, fn: () => turn(() => { const n = nodeAt(); if (n) ed.chain().focus().deleteRange({ from: pos, to: pos + n.nodeSize }).run(); }) },
+      ];
+      const page = document.getElementById("editorPage");
+      const menu = document.createElement("div");
+      menu.className = "ed-blockmenu";
+      menu.innerHTML = items.map((it, i) => it.divider
+        ? '<div class="ed-blockmenu__div"></div>'
+        : `<button class="ed-blockmenu__item ${it.danger ? "is-danger" : ""}" data-i="${i}"><span class="ed-blockmenu__ico">${esc(it.ico)}</span>${esc(it.txt)}</button>`).join("");
+      page.appendChild(menu);
+      this._blockMenuEl = menu;
+      const hr = this._handleEl.getBoundingClientRect();
+      const pr = page.getBoundingClientRect();
+      menu.style.left = (hr.left - pr.left) + "px";
+      menu.style.top = (hr.bottom - pr.top + 4) + "px";
+      menu.querySelectorAll(".ed-blockmenu__item").forEach((b) => {
+        b.addEventListener("mousedown", (e) => { e.preventDefault(); const it = items[parseInt(b.dataset.i, 10)]; it && it.fn && it.fn(); });
+      });
+      setTimeout(() => {
+        this._blockMenuDoc = (e) => { if (this._blockMenuEl && !this._blockMenuEl.contains(e.target)) this._closeBlockMenu(); };
+        document.addEventListener("mousedown", this._blockMenuDoc, true);
+      }, 0);
+    },
+
+    _closeBlockMenu() {
+      if (this._blockMenuDoc) { document.removeEventListener("mousedown", this._blockMenuDoc, true); this._blockMenuDoc = null; }
+      if (this._blockMenuEl) { this._blockMenuEl.remove(); this._blockMenuEl = null; }
     },
   };
 
