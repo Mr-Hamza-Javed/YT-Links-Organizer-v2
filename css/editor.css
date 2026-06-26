@@ -137,6 +137,43 @@
 .ed-prop__link { color: var(--accent); text-decoration: none; font-weight: 550; }
 .ed-prop__link:hover { text-decoration: underline; }
 
+/* ---------- custom properties (per item) ---------- */
+.ed-cprops { display: flex; flex-direction: column; gap: 2px; margin: 6px 0 16px; }
+.ed-cprop { display: flex; align-items: flex-start; gap: 10px; min-height: 30px; }
+.ed-cprop__name {
+  width: 160px; flex-shrink: 0; border: none; background: transparent; text-align: left;
+  color: var(--text-3); font-size: 13px; padding: 5px 6px; border-radius: 5px; display: flex; gap: 6px; align-items: center;
+}
+.ed-cprop__name:hover { background: var(--bg-hover); color: var(--text-2); }
+.ed-cprop__val { flex: 1; min-width: 0; display: flex; align-items: center; }
+.ed-pv-input, .ed-pv-date {
+  width: 100%; max-width: 360px; border: 1px solid transparent; background: transparent; color: var(--text);
+  font-size: 13.5px; padding: 5px 7px; border-radius: 5px; font-family: inherit;
+}
+.ed-pv-input:hover, .ed-pv-date:hover { background: var(--bg-sunken); }
+.ed-pv-input:focus, .ed-pv-date:focus { background: var(--bg-sunken); border-color: var(--accent); outline: none; }
+.ed-pv-check { width: 16px; height: 16px; accent-color: var(--accent); margin: 6px; cursor: pointer; }
+.ed-pv-select {
+  border: none; background: transparent; color: var(--text); font-size: 13.5px; padding: 5px 8px;
+  border-radius: 5px; text-align: left; min-width: 120px;
+}
+.ed-pv-select:hover { background: var(--bg-sunken); }
+.ed-pv-empty { color: var(--text-3); }
+.ed-pv-multi { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; padding: 3px 0; }
+.ed-pv-chip {
+  display: inline-flex; align-items: center; gap: 4px; background: var(--accent-soft); color: var(--text);
+  border-radius: 4px; padding: 2px 4px 2px 8px; font-size: 12.5px;
+}
+.ed-pv-chip button { border: none; background: transparent; color: var(--text-3); font-size: 13px; line-height: 1; padding: 0 2px; }
+.ed-pv-chip button:hover { color: var(--accent); }
+.ed-pv-add { border: 1px dashed var(--border); background: transparent; color: var(--text-3); border-radius: 5px; padding: 3px 8px; font-size: 12px; }
+.ed-pv-add:hover { color: var(--text); border-color: var(--text-3); }
+.ed-cprop__add {
+  align-self: flex-start; border: none; background: transparent; color: var(--text-3);
+  font-size: 13px; padding: 6px; border-radius: 5px; margin-top: 2px;
+}
+.ed-cprop__add:hover { background: var(--bg-hover); color: var(--text-2); }
+
 /* ---------- embedded video card ---------- */
 .ed-vcard {
   position: relative;

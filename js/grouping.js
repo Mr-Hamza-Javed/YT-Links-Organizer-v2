@@ -4,21 +4,22 @@
    Turns a flat list of items + a per-list "view" config into a
    filtered / sorted / grouped structure the grid can render.
 
-   View model (stored additively on each list as list.view):
-     {
-       group:   fieldId | null,             // group rows by this field
-       sort:    { field: "manual"|fieldId, dir: "asc"|"desc" },
-       filters: [ { field, op, value } ],
-       collapsed: { [groupKey]: true },     // collapsed groups
-       groupOrder: [ groupKey, … ]          // manual group order
-     }
+   Fields come in two flavours:
+     • built-in   (Type, Channel, Views, Duration, Date added, …)
+     • custom     (user-defined list properties, id "p:<propId>")
+   resolveFields(list) merges both; every other function takes that
+   resolved map so custom properties behave exactly like built-ins.
 
-   "Manual" sort keeps each item's saved `order` (drag order) and only the
-   GROUPS get reordered — exactly the behaviour requested.
+   View model (stored additively on each list as list.view):
+     { group, sort:{field,dir}, filters:[{field,op,value}],
+       collapsed:{[key]:true}, groupOrder:[key,…] }
+   Custom property schema lives on list.props, values on item.pvals.
+
+   "Manual" sort keeps each item's saved `order` and only the GROUPS
+   get reordered.
    ========================================================= */
 
 const Grouping = {
-  // ---- built-in field registry (custom props get merged in later) ----
   FIELDS: {
     title:    { label: "Title",       kind: "text",   ico: "T",  get: (v) => (v.type === "note" ? (v.name || "") : (v.title || "")) },
     type:     { label: "Type",        kind: "select", ico: "▦",  get: (v) => v.type === "note" ? "Note" : (v.type === "channel" ? "Channel" : "Video") },
@@ -30,41 +31,63 @@ const Grouping = {
     hasNote:  { label: "Has note",    kind: "bool",   ico: "✎",  get: (v) => !!((v.note && String(v.note).trim()) || v.type === "note") },
   },
 
-  // fields offered for grouping (numbers are bucketed)
-  groupableFields() { return ["type", "channel", "added", "views", "duration", "hasNote"]; },
-  // fields offered for sorting
-  sortableFields() { return ["title", "added", "views", "duration", "channel", "subs"]; },
-  // fields offered for filtering
-  filterableFields() { return ["type", "channel", "hasNote", "title"]; },
+  PROP_TYPES: [
+    { type: "text",     label: "Text",         ico: "T" },
+    { type: "number",   label: "Number",       ico: "#" },
+    { type: "select",   label: "Select",       ico: "⊙" },
+    { type: "multi",    label: "Multi-select", ico: "≣" },
+    { type: "date",     label: "Date",         ico: "📅" },
+    { type: "checkbox", label: "Checkbox",     ico: "☑" },
+    { type: "url",      label: "URL",          ico: "🔗" },
+  ],
 
-  field(id) { return this.FIELDS[id] || null; },
-
-  defaultView() {
-    return { group: null, sort: { field: "manual", dir: "asc" }, filters: [], collapsed: {}, groupOrder: [] };
+  // built-in + custom (list.props) resolved into one field map
+  resolveFields(list) {
+    const out = Object.assign({}, this.FIELDS);
+    const props = (list && list.props) || {};
+    Object.values(props).forEach((p) => {
+      if (!p || !p.id) return;
+      const id = "p:" + p.id;
+      out[id] = {
+        label: p.name || "Property", kind: p.type || "text", ico: "◆", custom: true, prop: p,
+        get: (v) => {
+          const pv = (v.pvals || {})[p.id];
+          if (pv == null) return p.type === "checkbox" ? false : (p.type === "multi" ? [] : "");
+          return pv;
+        },
+      };
+    });
+    return out;
   },
+  customIds(fields) { return Object.keys(fields).filter((k) => fields[k].custom); },
 
-  // normalise a (possibly partial / legacy) stored view
-  normalize(view) {
+  groupableFields(fields) { fields = fields || this.FIELDS; return ["type", "channel", "added", "views", "duration", "hasNote"].filter((k) => fields[k]).concat(this.customIds(fields)); },
+  sortableFields(fields) { fields = fields || this.FIELDS; return ["title", "added", "views", "duration", "channel", "subs"].filter((k) => fields[k]).concat(this.customIds(fields)); },
+  filterableFields(fields) { fields = fields || this.FIELDS; return ["type", "channel", "hasNote", "title"].filter((k) => fields[k]).concat(this.customIds(fields)); },
+
+  defaultView() { return { group: null, sort: { field: "manual", dir: "asc" }, filters: [], collapsed: {}, groupOrder: [] }; },
+
+  normalize(view, fields) {
+    fields = fields || this.FIELDS;
     const d = this.defaultView();
     if (!view || typeof view !== "object") return d;
     return {
-      group: this.FIELDS[view.group] ? view.group : null,
+      group: fields[view.group] ? view.group : null,
       sort: {
-        field: (view.sort && (view.sort.field === "manual" || this.FIELDS[view.sort.field])) ? view.sort.field : "manual",
+        field: (view.sort && (view.sort.field === "manual" || fields[view.sort.field])) ? view.sort.field : "manual",
         dir: (view.sort && view.sort.dir === "desc") ? "desc" : "asc",
       },
-      filters: Array.isArray(view.filters) ? view.filters.filter((f) => f && this.FIELDS[f.field]) : [],
+      filters: Array.isArray(view.filters) ? view.filters.filter((f) => f && fields[f.field]) : [],
       collapsed: (view.collapsed && typeof view.collapsed === "object") ? view.collapsed : {},
       groupOrder: Array.isArray(view.groupOrder) ? view.groupOrder : [],
     };
   },
 
-  isDefault(view) {
-    const v = this.normalize(view);
+  isDefault(view, fields) {
+    const v = this.normalize(view, fields);
     return !v.group && v.sort.field === "manual" && v.filters.length === 0;
   },
 
-  // ---- number / date bucketing for grouping ----
   _viewsBucket(n) {
     if (n <= 0) return { key: "v0", label: "No views", rank: 0 };
     if (n < 1e3) return { key: "v1", label: "Under 1K", rank: 1 };
@@ -95,35 +118,44 @@ const Grouping = {
     if (ts >= t0 - 365 * day) return { key: "t4", label: "Earlier this year", rank: 4 };
     return { key: "t5", label: "Older", rank: 5 };
   },
+  _emptyGroup() { return { key: "∅", label: "(Empty)", rank: 9999 }; },
 
-  // group descriptor {key,label,rank} for an item under a field
-  groupOf(fieldId, item, now) {
-    const f = this.FIELDS[fieldId];
+  groupOf(fieldId, item, now, fields) {
+    fields = fields || this.FIELDS;
+    const f = fields[fieldId];
     const raw = f ? f.get(item) : "";
+    if (f && f.custom) {
+      if (f.kind === "checkbox") return raw ? { key: "y", label: "Checked", rank: 0 } : { key: "n", label: "Unchecked", rank: 1 };
+      if (f.kind === "multi") { const a = Array.isArray(raw) ? raw.slice().sort() : []; const s = a.join(", "); return s ? { key: s, label: s, rank: 0 } : this._emptyGroup(); }
+      if (f.kind === "date" && raw) return this._dateBucket(Number(raw), now);
+      const s = String(raw == null ? "" : raw).trim();
+      return s ? { key: s, label: s, rank: 0 } : this._emptyGroup();
+    }
     if (fieldId === "views") return this._viewsBucket(Number(raw || 0));
     if (fieldId === "duration") return this._durBucket(Number(raw || 0));
     if (fieldId === "added") return this._dateBucket(Number(raw || 0), now);
     if (fieldId === "hasNote") return raw ? { key: "y", label: "With note", rank: 0 } : { key: "n", label: "No note", rank: 1 };
-    if (fieldId === "type") {
-      const order = { Video: 0, Note: 1, Channel: 2 };
-      return { key: String(raw), label: String(raw), rank: order[raw] ?? 9 };
-    }
+    if (fieldId === "type") { const order = { Video: 0, Note: 1, Channel: 2 }; return { key: String(raw), label: String(raw), rank: order[raw] ?? 9 }; }
     const s = String(raw || "").trim();
-    if (!s) return { key: "∅", label: "(Empty)", rank: 9999 };
-    return { key: s, label: s, rank: 0 };
+    return s ? { key: s, label: s, rank: 0 } : this._emptyGroup();
   },
 
-  // ---- filtering ----
-  matchFilter(item, filter) {
-    const f = this.FIELDS[filter.field];
+  matchFilter(item, filter, fields) {
+    fields = fields || this.FIELDS;
+    const f = fields[filter.field];
     if (!f) return true;
     const v = f.get(item);
     const op = filter.op || "is";
     const val = filter.value;
+    if (f.kind === "multi") {
+      const arr = (Array.isArray(v) ? v : []).map((x) => String(x).toLowerCase());
+      const tv = String(val == null ? "" : val).toLowerCase();
+      switch (op) { case "is": case "contains": return arr.includes(tv); case "isNot": case "notContains": return !arr.includes(tv); case "isEmpty": return arr.length === 0; case "isNotEmpty": return arr.length > 0; default: return true; }
+    }
     const sv = String(v == null ? "" : v).toLowerCase();
     const tv = String(val == null ? "" : val).toLowerCase();
     switch (op) {
-      case "is": return f.kind === "bool" ? (!!v === (val === true || val === "true")) : sv === tv;
+      case "is": return f.kind === "bool" || f.kind === "checkbox" ? (!!v === (val === true || val === "true")) : sv === tv;
       case "isNot": return sv !== tv;
       case "contains": return sv.includes(tv);
       case "notContains": return !sv.includes(tv);
@@ -133,22 +165,21 @@ const Grouping = {
     }
   },
 
-  // ---- sorting ----
-  _cmp(a, b, fieldId, dir) {
-    const f = this.FIELDS[fieldId];
-    let x = f.get(a), y = f.get(b);
+  _cmp(a, b, fieldId, dir, fields) {
+    const f = fields[fieldId];
+    const x = f.get(a), y = f.get(b);
     let r;
-    if (f.kind === "text" || f.kind === "select") r = String(x || "").localeCompare(String(y || ""), undefined, { sensitivity: "base", numeric: true });
-    else r = (Number(x || 0) - Number(y || 0));
+    if (f.kind === "number" || f.kind === "date") r = Number(x || 0) - Number(y || 0);
+    else if (f.kind === "checkbox" || f.kind === "bool") r = (x ? 1 : 0) - (y ? 1 : 0);
+    else if (f.kind === "multi") r = String((Array.isArray(x) ? x : []).join(",")).localeCompare(String((Array.isArray(y) ? y : []).join(",")), undefined, { sensitivity: "base" });
+    else r = String(x || "").localeCompare(String(y || ""), undefined, { sensitivity: "base", numeric: true });
     return dir === "desc" ? -r : r;
   },
-  sortItems(items, sort) {
+  sortItems(items, sort, fields) {
+    fields = fields || this.FIELDS;
     const arr = items.slice();
-    if (!sort || sort.field === "manual" || !this.FIELDS[sort.field]) {
-      arr.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-    } else {
-      arr.sort((a, b) => this._cmp(a, b, sort.field, sort.dir) || ((a.order ?? 0) - (b.order ?? 0)));
-    }
+    if (!sort || sort.field === "manual" || !fields[sort.field]) arr.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    else arr.sort((a, b) => this._cmp(a, b, sort.field, sort.dir, fields) || ((a.order ?? 0) - (b.order ?? 0)));
     return arr;
   },
 
@@ -158,26 +189,24 @@ const Grouping = {
     return 100000 + (group.rank ?? 0);
   },
 
-  // ---- main entry ----
-  apply(items, view, now) {
-    const v = this.normalize(view);
+  apply(items, view, now, list) {
+    const fields = this.resolveFields(list);
+    const v = this.normalize(view, fields);
     let arr = (items || []).slice();
-    if (v.filters.length) arr = arr.filter((it) => v.filters.every((f) => this.matchFilter(it, f)));
+    if (v.filters.length) arr = arr.filter((it) => v.filters.every((f) => this.matchFilter(it, f, fields)));
 
-    if (!v.group) {
-      return { grouped: false, view: v, items: this.sortItems(arr, v.sort), total: arr.length };
-    }
+    if (!v.group) return { grouped: false, view: v, fields, items: this.sortItems(arr, v.sort, fields), total: arr.length };
 
     const map = new Map();
     for (const it of arr) {
-      const g = this.groupOf(v.group, it, now);
+      const g = this.groupOf(v.group, it, now, fields);
       if (!map.has(g.key)) map.set(g.key, { key: g.key, label: g.label, rank: g.rank, items: [] });
       map.get(g.key).items.push(it);
     }
     let groups = [...map.values()];
-    groups.forEach((grp) => { grp.items = this.sortItems(grp.items, v.sort); grp.collapsed = !!v.collapsed[grp.key]; });
+    groups.forEach((grp) => { grp.items = this.sortItems(grp.items, v.sort, fields); grp.collapsed = !!v.collapsed[grp.key]; });
     groups.sort((a, b) => (this.groupRank(a, v) - this.groupRank(b, v)) || String(a.label).localeCompare(String(b.label)));
-    return { grouped: true, view: v, groups, total: arr.length };
+    return { grouped: true, view: v, fields, groups, total: arr.length };
   },
 };
 

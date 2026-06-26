@@ -126,10 +126,12 @@ const Videos = {
 
     // ---- Notion-style view: filter / sort / group ----
     const list = State.lists[State.activeListId] || {};
-    const view = Grouping.normalize(list.view);
+    const fields = Grouping.resolveFields(list);
+    const view = Grouping.normalize(list.view, fields);
     this._view = view;
-    this.renderViewBar(view);
-    const res = Grouping.apply(vids, view);
+    this._fields = fields;
+    this.renderViewBar(view, fields);
+    const res = Grouping.apply(vids, view, undefined, list);
 
     if (!res.grouped) {
       grid.className = "video-grid";
@@ -151,12 +153,12 @@ const Videos = {
   },
 
   // ---------- VIEW BAR (group / sort / filter controls) ----------
-  renderViewBar(view) {
+  renderViewBar(view, fields) {
     const bar = document.getElementById("viewBar");
     if (!bar) return;
     if (!State.uid || !State.activeListId) { bar.hidden = true; return; }
     bar.hidden = false;
-    const F = Grouping.FIELDS;
+    const F = fields || this._fields || Grouping.FIELDS;
     const chip = (id, label, active) =>
       `<button class="vb-chip ${active ? "is-active" : ""}" data-vb="${id}">${label}</button>`;
     const groupLabel = view.group ? `Group: ${F[view.group].label}` : "Group";
@@ -175,9 +177,9 @@ const Videos = {
   },
 
   openGroupMenu(btn, view) {
-    const F = Grouping.FIELDS;
+    const F = this._fields || Grouping.FIELDS;
     const items = [{ key: "_none", ico: "🚫", text: "No grouping", onClick: () => this.saveView({ ...view, group: null, groupOrder: [], collapsed: {} }) }];
-    Grouping.groupableFields().forEach((id) => items.push({
+    Grouping.groupableFields(F).forEach((id) => items.push({
       key: id, ico: F[id].ico, text: F[id].label,
       onClick: () => this.saveView({ ...view, group: id, groupOrder: [], collapsed: {} }),
     }));
@@ -185,9 +187,9 @@ const Videos = {
   },
 
   openSortMenu(btn, view) {
-    const F = Grouping.FIELDS;
+    const F = this._fields || Grouping.FIELDS;
     const items = [{ key: "manual", ico: "↕️", text: "Manual" + (view.sort.field === "manual" ? " ✓" : ""), onClick: () => this.saveView({ ...view, sort: { field: "manual", dir: "asc" } }) }];
-    Grouping.sortableFields().forEach((id) => {
+    Grouping.sortableFields(F).forEach((id) => {
       const isCur = view.sort.field === id;
       const nextDir = isCur && view.sort.dir === "asc" ? "desc" : "asc";
       const mark = isCur ? (view.sort.dir === "desc" ? " ↓" : " ↑") : "";
@@ -197,19 +199,19 @@ const Videos = {
   },
 
   openFilterMenu(btn, view) {
-    const F = Grouping.FIELDS;
+    const F = this._fields || Grouping.FIELDS;
     const items = [];
     if (view.filters.length) {
-      view.filters.forEach((f, i) => items.push({ key: "rm" + i, ico: "✕", text: `${F[f.field].label} ${f.op} “${f.value}”`, onClick: () => { const nf = view.filters.slice(); nf.splice(i, 1); this.saveView({ ...view, filters: nf }); } }));
+      view.filters.forEach((f, i) => items.push({ key: "rm" + i, ico: "✕", text: `${(F[f.field] || {}).label || f.field} ${f.op} “${f.value}”`, onClick: () => { const nf = view.filters.slice(); nf.splice(i, 1); this.saveView({ ...view, filters: nf }); } }));
       items.push({ divider: true });
     }
     items.push({ label: "Add filter" });
-    Grouping.filterableFields().forEach((id) => items.push({ key: id, ico: F[id].ico, text: F[id].label, onClick: () => this.addFilter(view, id) }));
+    Grouping.filterableFields(F).forEach((id) => items.push({ key: id, ico: F[id].ico, text: F[id].label, onClick: () => this.addFilter(view, id) }));
     UI.floatingMenu(btn, items, { align: "left" });
   },
 
   async addFilter(view, fieldId) {
-    const f = Grouping.FIELDS[fieldId];
+    const f = (this._fields || Grouping.FIELDS)[fieldId];
     if (f.kind === "bool") { this.saveView({ ...view, filters: [...view.filters, { field: fieldId, op: "is", value: true }] }); return; }
     // suggest distinct values for select-like fields
     let val;
@@ -229,7 +231,7 @@ const Videos = {
   async saveView(view) {
     const id = State.activeListId;
     if (!id) return;
-    const v = Grouping.normalize(view);
+    const v = Grouping.normalize(view, this._fields);
     if (State.lists[id]) State.lists[id].view = v;
     this.render();
     try { await DB.list(id).update({ view: v }); } catch (e) { /* local already applied */ }
@@ -258,7 +260,7 @@ const Videos = {
         const collapsed = { ...(view.collapsed || {}) };
         if (sec.classList.contains("is-collapsed")) collapsed[key] = true; else delete collapsed[key];
         // persist quietly without a full re-render (DOM already toggled)
-        const v = Grouping.normalize({ ...view, collapsed });
+        const v = Grouping.normalize({ ...view, collapsed }, this._fields);
         if (State.lists[State.activeListId]) State.lists[State.activeListId].view = v;
         this._view = v;
         DB.list(State.activeListId).update({ view: v }).catch(() => {});
@@ -276,7 +278,7 @@ const Videos = {
       animation: 160,
       onEnd: () => {
         const order = [...document.querySelectorAll("#videoGrid .vgroup")].map((s) => s.dataset.group);
-        const v = Grouping.normalize({ ...this._view, groupOrder: order });
+        const v = Grouping.normalize({ ...this._view, groupOrder: order }, this._fields);
         if (State.lists[State.activeListId]) State.lists[State.activeListId].view = v;
         this._view = v;
         DB.list(State.activeListId).update({ view: v }).catch(() => {});

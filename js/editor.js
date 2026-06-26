@@ -504,6 +504,7 @@
             ${isNote
               ? `<textarea class="ed-title" id="edTitle" rows="1" placeholder="Untitled" spellcheck="false">${esc(this._titleVal)}</textarea>`
               : `<h1 class="ed-title is-static">${esc(item.title || "Untitled")}</h1>${this._videoPropsHtml(item)}`}
+            <div class="ed-cprops" id="edCProps"></div>
             <div class="ed-body" id="edBody"></div>
           </div>
         </div>`;
@@ -535,6 +536,7 @@
       };
       document.addEventListener("keydown", this._onKeyDown);
 
+      this._renderCustomProps();
       this._buildEditor(page.querySelector("#edBody"), this._loadDoc(item));
 
       // always open scrolled to the very top (focusing 'end' used to jump to the middle)
@@ -563,6 +565,128 @@
         <button class="ed-props__toggle" id="edPropsToggle"><span class="ed-props__chev">▾</span> Properties</button>
         <div class="ed-props__body">${rows.join("")}${watch}</div>
       </div>`;
+    },
+
+    // ---- custom (user-defined) properties ----
+    _list() { return State.lists[this._listId] || {}; },
+    _orderedProps() {
+      const props = this._list().props || {};
+      return Object.values(props).filter((p) => p && p.id).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    },
+
+    _renderCustomProps() {
+      const box = document.getElementById("edCProps");
+      if (!box) return;
+      const props = this._orderedProps();
+      const pvals = (this._item && this._item.pvals) || {};
+      box.innerHTML = props.map((p) => `
+        <div class="ed-cprop" data-pid="${esc(p.id)}">
+          <button class="ed-cprop__name" data-act="propmenu">${esc(Grouping.PROP_TYPES.find((t) => t.type === p.type)?.ico || "◆")} ${esc(p.name)}</button>
+          <div class="ed-cprop__val">${this._valEditorHtml(p, pvals[p.id])}</div>
+        </div>`).join("") +
+        `<button class="ed-cprop__add" id="edAddProp">＋ Add a property</button>`;
+
+      box.querySelectorAll(".ed-cprop").forEach((row) => {
+        const pid = row.dataset.pid;
+        const p = (this._list().props || {})[pid];
+        if (!p) return;
+        row.querySelector('[data-act="propmenu"]').addEventListener("click", (e) => this._propMenu(e.currentTarget, p));
+        this._wireValEditor(row, p);
+      });
+      const add = box.querySelector("#edAddProp");
+      if (add) add.addEventListener("click", (e) => this._addPropertyMenu(e.currentTarget));
+    },
+
+    _valEditorHtml(p, val) {
+      switch (p.type) {
+        case "checkbox": return `<input type="checkbox" class="ed-pv-check" ${val ? "checked" : ""} />`;
+        case "number": return `<input type="number" class="ed-pv-input" value="${esc(val == null ? "" : val)}" placeholder="Empty" />`;
+        case "date": { const d = val ? new Date(Number(val)) : null; const s = d && !isNaN(d) ? d.toISOString().slice(0, 10) : ""; return `<input type="date" class="ed-pv-date" value="${s}" />`; }
+        case "url": return `<input type="url" class="ed-pv-input" value="${esc(val || "")}" placeholder="https://…" />`;
+        case "select": return `<button class="ed-pv-select">${val ? esc(val) : '<span class="ed-pv-empty">Empty</span>'}</button>`;
+        case "multi": { const a = Array.isArray(val) ? val : []; return `<div class="ed-pv-multi">${a.map((x) => `<span class="ed-pv-chip">${esc(x)}<button data-rm="${esc(x)}">×</button></span>`).join("")}<button class="ed-pv-add">＋</button></div>`; }
+        default: return `<input type="text" class="ed-pv-input" value="${esc(val || "")}" placeholder="Empty" />`;
+      }
+    },
+
+    _wireValEditor(row, p) {
+      const pid = p.id;
+      const cur = ((this._item && this._item.pvals) || {})[pid];
+      if (p.type === "checkbox") { const el = row.querySelector(".ed-pv-check"); el.addEventListener("change", () => this._setPVal(pid, el.checked)); return; }
+      if (p.type === "number") { const el = row.querySelector(".ed-pv-input"); el.addEventListener("change", () => this._setPVal(pid, el.value === "" ? null : Number(el.value))); return; }
+      if (p.type === "date") { const el = row.querySelector(".ed-pv-date"); el.addEventListener("change", () => this._setPVal(pid, el.value ? new Date(el.value).getTime() : null)); return; }
+      if (p.type === "url" || p.type === "text") { const el = row.querySelector(".ed-pv-input"); el.addEventListener("change", () => this._setPVal(pid, el.value)); return; }
+      if (p.type === "select") {
+        row.querySelector(".ed-pv-select").addEventListener("click", (e) => {
+          const opts = (p.options || []).map((o) => ({ key: o.name, ico: "•", text: o.name, onClick: () => this._setPVal(pid, o.name) }));
+          opts.push({ key: "_new", ico: "＋", text: "New option…", onClick: async () => { const n = await UI.prompt({ title: "New option", label: "Option name", confirmText: "Add" }); if (n && n.trim()) { this._addOption(p, n.trim()); this._setPVal(pid, n.trim()); } } });
+          if (cur) opts.push({ key: "_clear", ico: "✕", text: "Clear", onClick: () => this._setPVal(pid, "") });
+          UI.floatingMenu(e.currentTarget, opts, { align: "left" });
+        });
+        return;
+      }
+      if (p.type === "multi") {
+        row.querySelectorAll(".ed-pv-chip button[data-rm]").forEach((b) => b.addEventListener("click", () => {
+          const arr = (((this._item.pvals || {})[pid]) || []).filter((x) => x !== b.dataset.rm);
+          this._setPVal(pid, arr);
+        }));
+        const add = row.querySelector(".ed-pv-add");
+        if (add) add.addEventListener("click", (e) => {
+          const arr = ((this._item.pvals || {})[pid]) || [];
+          const opts = (p.options || []).filter((o) => !arr.includes(o.name)).map((o) => ({ key: o.name, ico: "•", text: o.name, onClick: () => this._setPVal(pid, [...arr, o.name]) }));
+          opts.push({ key: "_new", ico: "＋", text: "New option…", onClick: async () => { const n = await UI.prompt({ title: "New option", label: "Option name", confirmText: "Add" }); if (n && n.trim()) { this._addOption(p, n.trim()); this._setPVal(pid, [...arr, n.trim()]); } } });
+          UI.floatingMenu(e.currentTarget, opts, { align: "left" });
+        });
+        return;
+      }
+    },
+
+    async _setPVal(pid, val) {
+      if (!this._item) return;
+      const pvals = Object.assign({}, this._item.pvals || {});
+      if (val == null || val === "" || (Array.isArray(val) && val.length === 0)) delete pvals[pid];
+      else pvals[pid] = val;
+      this._item.pvals = pvals;
+      if (State.videos[this._itemId]) State.videos[this._itemId].pvals = pvals;
+      this._renderCustomProps();
+      try { await DB.video(this._listId, this._itemId).update({ pvals: pvals }); } catch (_) {}
+    },
+
+    _saveSchema(props) {
+      const id = this._listId;
+      if (State.lists[id]) State.lists[id].props = props;
+      this._renderCustomProps();
+      DB.list(id).update({ props }).catch(() => {});
+    },
+    _addOption(p, name) {
+      const props = Object.assign({}, this._list().props || {});
+      const cur = props[p.id] || p;
+      const options = (cur.options || []).slice();
+      if (!options.some((o) => o.name === name)) options.push({ id: Utils.uid("o"), name });
+      props[p.id] = Object.assign({}, cur, { options });
+      this._saveSchema(props);
+    },
+
+    _addPropertyMenu(anchor) {
+      const items = Grouping.PROP_TYPES.map((t) => ({ key: t.type, ico: t.ico, text: t.label, onClick: () => this._createProperty(t.type) }));
+      UI.floatingMenu(anchor, items, { align: "left" });
+    },
+    async _createProperty(type) {
+      const name = await UI.prompt({ title: "New property", label: "Property name", placeholder: (Grouping.PROP_TYPES.find((t) => t.type === type) || {}).label, confirmText: "Add" });
+      if (name == null || !name.trim()) return;
+      const props = Object.assign({}, this._list().props || {});
+      const maxOrder = Math.max(-1, ...Object.values(props).map((p) => p.order ?? 0));
+      const id = Utils.uid("p");
+      props[id] = { id, name: name.trim(), type, options: [], order: maxOrder + 1 };
+      this._saveSchema(props);
+    },
+    _propMenu(anchor, p) {
+      const items = [
+        { key: "rename", ico: "✏️", text: "Rename", onClick: async () => { const n = await UI.prompt({ title: "Rename property", label: "Name", value: p.name, confirmText: "Rename" }); if (n && n.trim()) { const props = Object.assign({}, this._list().props || {}); props[p.id] = Object.assign({}, props[p.id], { name: n.trim() }); this._saveSchema(props); } } },
+        { divider: true },
+        { key: "delete", ico: "🗑️", text: "Delete property", danger: true, onClick: () => { const props = Object.assign({}, this._list().props || {}); delete props[p.id]; this._saveSchema(props); } },
+      ];
+      UI.floatingMenu(anchor, items, { align: "left" });
     },
 
     _loadDoc(item) {
