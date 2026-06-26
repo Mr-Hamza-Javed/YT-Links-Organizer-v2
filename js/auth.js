@@ -23,6 +23,7 @@ const Auth = {
 
     // wire buttons
     document.getElementById("signInBtn").addEventListener("click", () => this.signIn());
+    document.getElementById("welcomeSignInBtn").addEventListener("click", () => this.signIn());
     document.getElementById("logoutBtn").addEventListener("click", () => this.signOut());
     document.getElementById("userChip").addEventListener("click", (e) => {
       e.stopPropagation();
@@ -36,11 +37,20 @@ const Auth = {
     fbAuth.onAuthStateChanged((user) => this.onAuthChange(user));
   },
 
+  _setBtnLoading(loading) {
+    const btn = document.getElementById("welcomeSignInBtn");
+    if (!btn) return;
+    btn.disabled = loading;
+    btn.classList.toggle("is-loading", loading);
+  },
+
   async signIn() {
+    this._setBtnLoading(true);
     const provider = new firebase.auth.GoogleAuthProvider();
     provider.setCustomParameters({ prompt: "select_account" });
     try {
       await fbAuth.signInWithPopup(provider);
+      // success → onAuthChange hides the welcome screen; leave the button as-is
     } catch (e) {
       // fall back to redirect if popup blocked/unsupported
       const fallbackCodes = [
@@ -51,11 +61,15 @@ const Auth = {
         "auth/web-storage-unsupported",
       ];
       if (fallbackCodes.includes(e.code)) {
-        if (e.code === "auth/popup-closed-by-user" || e.code === "auth/cancelled-popup-request") return;
+        if (e.code === "auth/popup-closed-by-user" || e.code === "auth/cancelled-popup-request") {
+          this._setBtnLoading(false);
+          return;
+        }
         UI.toast("Popup blocked — redirecting to sign in…", "info");
         try { await fbAuth.signInWithRedirect(provider); }
-        catch (e2) { UI.toast("Sign-in failed: " + (e2.message || e2.code), "error"); }
+        catch (e2) { this._setBtnLoading(false); UI.toast("Sign-in failed: " + (e2.message || e2.code), "error"); }
       } else {
+        this._setBtnLoading(false);
         UI.toast("Sign-in failed: " + (e.message || e.code), "error");
       }
     }
@@ -71,10 +85,14 @@ const Auth = {
     const signInBtn = document.getElementById("signInBtn");
     const userChip = document.getElementById("userChip");
     const createBtn = document.getElementById("createListBtn");
+    const welcome = document.getElementById("welcomeScreen");
 
     if (user) {
       State.uid = user.uid;
       State.user = user;
+      // reveal the app, dismiss the welcome / sign-in screen
+      welcome.hidden = true;
+      this._setBtnLoading(false);
       signInBtn.hidden = true;
       userChip.hidden = false;
       createBtn.style.display = "";
@@ -91,6 +109,10 @@ const Auth = {
     } else {
       State.uid = null;
       State.user = null;
+      // show the welcome / sign-in screen with its full content
+      this._setBtnLoading(false);
+      welcome.hidden = false;
+      welcome.classList.add("is-ready");
       signInBtn.hidden = false;
       userChip.hidden = true;
       createBtn.style.display = "none";
