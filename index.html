@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="css/styles.css" />
+<link rel="stylesheet" href="css/editor.css" />
 </head>
 <body>
 
@@ -128,6 +129,9 @@
   </main>
 </div>
 
+<!-- ============ NOTION-STYLE FULL-PAGE EDITOR ============ -->
+<div id="editorPage" class="editor-page" hidden></div>
+
 <!-- ============ WELCOME / SIGN-IN SCREEN ============ -->
 <div id="welcomeScreen" class="welcome">
   <!-- boot spinner — shown until Firebase resolves the auth state -->
@@ -214,6 +218,57 @@
 <script src="js/videos.js"></script>
 <script src="js/transfer.js"></script>
 <script src="js/statusbar.js"></script>
+<script src="js/editor.js"></script>
 <script src="js/boot.js"></script>
+
+<!-- TipTap (Notion-style editor engine) loaded as an ES module from a CDN.
+     No build step: it resolves a single shared @tiptap/pm, then exposes the
+     classes on window.TT and signals readiness. js/editor.js (classic script)
+     consumes window.TT lazily when a note is first opened. -->
+<script type="module">
+  const V = "2.11.5";
+  const E = (n) => `https://esm.sh/@tiptap/${n}@${V}`;
+  Promise.all([
+    import(E("core")),
+    import(E("starter-kit")),
+    import(E("extension-placeholder")),
+    import(E("extension-table")),
+    import(E("extension-table-row")),
+    import(E("extension-table-cell")),
+    import(E("extension-table-header")),
+    import(E("extension-text-style")),
+    import(E("extension-color")),
+    import(E("extension-highlight")),
+    import(E("extension-task-list")),
+    import(E("extension-task-item")),
+    import(E("extension-link")),
+    import(E("extension-underline")),
+    import(E("extension-text-align")),
+  ]).then(([core, sk, ph, tbl, trow, tcell, thead, tstyle, color, hl, tl, ti, link, ul, talign]) => {
+    window.TT = {
+      Editor: core.Editor, Node: core.Node, Mark: core.Mark, Extension: core.Extension,
+      mergeAttributes: core.mergeAttributes, InputRule: core.InputRule,
+      StarterKit: sk.default || sk.StarterKit,
+      Placeholder: ph.default || ph.Placeholder,
+      Table: tbl.default || tbl.Table,
+      TableRow: trow.default || trow.TableRow,
+      TableCell: tcell.default || tcell.TableCell,
+      TableHeader: thead.default || thead.TableHeader,
+      TextStyle: tstyle.default || tstyle.TextStyle,
+      Color: color.default || color.Color,
+      Highlight: hl.default || hl.Highlight,
+      TaskList: tl.default || tl.TaskList,
+      TaskItem: ti.default || ti.TaskItem,
+      Link: link.default || link.Link,
+      Underline: ul.default || ul.Underline,
+      TextAlign: talign.default || talign.TextAlign,
+    };
+    window.dispatchEvent(new CustomEvent("tiptap-ready"));
+  }).catch((err) => {
+    console.error("Failed to load editor engine:", err);
+    window.__ttError = err;
+    window.dispatchEvent(new CustomEvent("tiptap-error", { detail: err }));
+  });
+</script>
 </body>
 </html>

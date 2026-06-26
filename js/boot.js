@@ -69,7 +69,7 @@ const App = {
     document.getElementById("mobileBackdrop").addEventListener("click", () => this.closeDrawer());
     document.getElementById("createListBtn").addEventListener("click", () => Lists.openCreateModal());
     document.getElementById("addVideoBtn").addEventListener("click", () => Videos.openAddModal());
-    document.getElementById("addNoteBtn").addEventListener("click", () => Videos.openAddNoteModal());
+    document.getElementById("addNoteBtn").addEventListener("click", () => Videos.createNoteAndOpen());
   },
   closeDrawer() { document.getElementById("app").classList.remove("drawer-open"); },
 
