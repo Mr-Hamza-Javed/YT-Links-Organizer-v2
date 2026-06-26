@@ -246,7 +246,6 @@ const Videos = {
       const items = [
         { key: "open", ico: "📖", text: "Open Note", onClick: () => Notes.openInline(vid) },
         { key: "rename", ico: "✏️", text: "Rename", onClick: () => this.renameNote(vid) },
-        { key: "expand", ico: "⛶", text: "Open in full editor", onClick: () => Notes.openFullscreen(vid) },
         { key: "move", ico: "📂", text: "Move to list…", onClick: () => this.openMoveMenu(btn, vid) },
         { divider: true },
         { key: "delete", ico: "🗑️", text: "Delete", danger: true, onClick: () => this.deleteVideo(vid) },
@@ -395,6 +394,27 @@ const Videos = {
     try {
       await DB.videos(listId).push().set(record);
       UI.toast("Note created", "success", 1500);
+    } catch (e) { UI.toast("Couldn't create note: " + e.message, "error"); }
+  },
+
+  // ---------- CREATE A BLANK NOTE AND OPEN IT (Notion-style) ----------
+  async createNoteAndOpen() {
+    if (!State.uid) { UI.toast("Please sign in first", "info"); return; }
+    const listId = State.activeListId;
+    if (!listId) { UI.toast("Select a list first", "info"); return; }
+    const now = Date.now();
+    const minOrder = Math.min(0, ...Object.values(State.videos).map((v) => v.order ?? 0));
+    const record = {
+      type: "note", name: "", note: "", order: minOrder - 1,
+      createdAt: now, timestamp: now, noteTimestamp: now,
+    };
+    try {
+      const ref = DB.videos(listId).push();
+      await ref.set(record);
+      // make it available to the editor immediately (the live listener will
+      // also pick it up); then open the blank page so the user starts typing.
+      State.videos[ref.key] = { ...record, _key: ref.key };
+      if (window.NoteEditor) NoteEditor.open(ref.key);
     } catch (e) { UI.toast("Couldn't create note: " + e.message, "error"); }
   },
 
