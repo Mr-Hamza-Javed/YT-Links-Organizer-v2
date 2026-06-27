@@ -43,6 +43,7 @@ const Videos = {
       Object.entries(all).forEach(([vid, v]) => {
         if (!v || typeof v !== "object") return;
         if (v.type === "note") { v._key = vid; State.videos[vid] = v; return; }
+        if (v.type === "channel") { v._key = vid; State.videos[vid] = v; return; }
         // skip orphan/corrupt nodes (e.g. {order:N} with no real video data)
         if (!v.title && !v.thumbnail && !v.youtubeId) return;
         v._key = vid; v.youtubeId = v.youtubeId || vid;
@@ -100,7 +101,10 @@ const Videos = {
   render() {
     const grid = document.getElementById("videoGrid");
     const empty = document.getElementById("gridEmpty");
+    const viewBar = document.getElementById("viewBar");
     const vids = this.orderedVideos();
+
+    if (!State.uid || vids.length === 0) { if (viewBar) viewBar.hidden = true; }
 
     if (!State.uid) {
       grid.innerHTML = "";
@@ -120,14 +124,176 @@ const Videos = {
       return;
     }
     empty.hidden = true;
-    grid.innerHTML = vids.map((v) => this.cardHtml(v)).join("");
-    this.applySearchFilter();
-    this.wireCards();
-    this.setupSortable();
+
+    // ---- Notion-style view: filter / sort / group ----
+    const list = State.lists[State.activeListId] || {};
+    const fields = Grouping.resolveFields(list);
+    const view = Grouping.normalize(list.view, fields);
+    this._view = view;
+    this._fields = fields;
+    this.renderViewBar(view, fields);
+    const res = Grouping.apply(vids, view, undefined, list);
+
+    if (!res.grouped) {
+      grid.className = "video-grid";
+      grid.innerHTML = res.items.map((v) => this.cardHtml(v)).join("");
+      this.applySearchFilter();
+      this.wireCards();
+      // manual drag-reorder only in the default (manual, unfiltered) flat view
+      if (view.sort.field === "manual") this.setupSortable();
+      else this.teardownSortable();
+    } else {
+      grid.className = "video-grouped";
+      grid.innerHTML = res.groups.map((g) => this.groupHtml(g, view)).join("");
+      this.applySearchFilter();
+      this.wireCards();
+      this.wireGroups(view);
+      this.teardownSortable();
+      this.setupGroupSortable(view);
+    }
+  },
+
+  // ---------- VIEW BAR (group / sort / filter controls) ----------
+  renderViewBar(view, fields) {
+    const bar = document.getElementById("viewBar");
+    if (!bar) return;
+    if (!State.uid || !State.activeListId) { bar.hidden = true; return; }
+    bar.hidden = false;
+    const F = fields || this._fields || Grouping.FIELDS;
+    const chip = (id, label, active) =>
+      `<button class="vb-chip ${active ? "is-active" : ""}" data-vb="${id}">${label}</button>`;
+    const groupLabel = view.group ? `Group: ${F[view.group].label}` : "Group";
+    const sortLabel = view.sort.field === "manual" ? "Sort" : `Sort: ${F[view.sort.field].label} ${view.sort.dir === "desc" ? "↓" : "↑"}`;
+    const filterLabel = view.filters.length ? `Filter · ${view.filters.length}` : "Filter";
+    bar.innerHTML =
+      chip("group", groupLabel, !!view.group) +
+      chip("sort", sortLabel, view.sort.field !== "manual") +
+      chip("filter", filterLabel, view.filters.length > 0) +
+      (Grouping.isDefault(view) ? "" : `<button class="vb-chip vb-reset" data-vb="reset">✕ Reset</button>`);
+    bar.querySelector('[data-vb="group"]').addEventListener("click", (e) => this.openGroupMenu(e.currentTarget, view));
+    bar.querySelector('[data-vb="sort"]').addEventListener("click", (e) => this.openSortMenu(e.currentTarget, view));
+    bar.querySelector('[data-vb="filter"]').addEventListener("click", (e) => this.openFilterMenu(e.currentTarget, view));
+    const reset = bar.querySelector('[data-vb="reset"]');
+    if (reset) reset.addEventListener("click", () => this.saveView(Grouping.defaultView()));
+  },
+
+  openGroupMenu(btn, view) {
+    const F = this._fields || Grouping.FIELDS;
+    const items = [{ key: "_none", ico: "🚫", text: "No grouping", onClick: () => this.saveView({ ...view, group: null, groupOrder: [], collapsed: {} }) }];
+    Grouping.groupableFields(F).forEach((id) => items.push({
+      key: id, ico: F[id].ico, text: F[id].label,
+      onClick: () => this.saveView({ ...view, group: id, groupOrder: [], collapsed: {} }),
+    }));
+    UI.floatingMenu(btn, items, { align: "left" });
+  },
+
+  openSortMenu(btn, view) {
+    const F = this._fields || Grouping.FIELDS;
+    const items = [{ key: "manual", ico: "↕️", text: "Manual" + (view.sort.field === "manual" ? " ✓" : ""), onClick: () => this.saveView({ ...view, sort: { field: "manual", dir: "asc" } }) }];
+    Grouping.sortableFields(F).forEach((id) => {
+      const isCur = view.sort.field === id;
+      const nextDir = isCur && view.sort.dir === "asc" ? "desc" : "asc";
+      const mark = isCur ? (view.sort.dir === "desc" ? " ↓" : " ↑") : "";
+      items.push({ key: id, ico: F[id].ico, text: F[id].label + mark, onClick: () => this.saveView({ ...view, sort: { field: id, dir: nextDir } }) });
+    });
+    UI.floatingMenu(btn, items, { align: "left" });
+  },
+
+  openFilterMenu(btn, view) {
+    const F = this._fields || Grouping.FIELDS;
+    const items = [];
+    if (view.filters.length) {
+      view.filters.forEach((f, i) => items.push({ key: "rm" + i, ico: "✕", text: `${(F[f.field] || {}).label || f.field} ${f.op} “${f.value}”`, onClick: () => { const nf = view.filters.slice(); nf.splice(i, 1); this.saveView({ ...view, filters: nf }); } }));
+      items.push({ divider: true });
+    }
+    items.push({ label: "Add filter" });
+    Grouping.filterableFields(F).forEach((id) => items.push({ key: id, ico: F[id].ico, text: F[id].label, onClick: () => this.addFilter(view, id) }));
+    UI.floatingMenu(btn, items, { align: "left" });
+  },
+
+  async addFilter(view, fieldId) {
+    const f = (this._fields || Grouping.FIELDS)[fieldId];
+    if (f.kind === "bool") { this.saveView({ ...view, filters: [...view.filters, { field: fieldId, op: "is", value: true }] }); return; }
+    // suggest distinct values for select-like fields
+    let val;
+    if (f.kind === "select") {
+      const vals = [...new Set(Object.values(State.videos).map((v) => String(f.get(v) || "").trim()).filter(Boolean))].sort();
+      if (vals.length) {
+        const items = vals.slice(0, 30).map((x) => ({ key: x, ico: "•", text: x, onClick: () => this.saveView({ ...view, filters: [...view.filters, { field: fieldId, op: "is", value: x }] }) }));
+        UI.floatingMenu(document.querySelector('#viewBar [data-vb="filter"]'), items, { align: "left" });
+        return;
+      }
+    }
+    val = await UI.prompt({ title: `Filter by ${f.label}`, label: `${f.label} contains`, confirmText: "Apply" });
+    if (val == null || !val.trim()) return;
+    this.saveView({ ...view, filters: [...view.filters, { field: fieldId, op: "contains", value: val.trim() }] });
+  },
+
+  async saveView(view) {
+    const id = State.activeListId;
+    if (!id) return;
+    const v = Grouping.normalize(view, this._fields);
+    if (State.lists[id]) State.lists[id].view = v;
+    this.render();
+    try { await DB.list(id).update({ view: v }); } catch (e) { /* local already applied */ }
+  },
+
+  // ---------- GROUP rendering ----------
+  groupHtml(group, view) {
+    const cards = group.items.map((v) => this.cardHtml(v)).join("");
+    return `
+      <section class="vgroup ${group.collapsed ? "is-collapsed" : ""}" data-group="${Utils.escapeHtml(group.key)}">
+        <header class="vgroup__head">
+          <button class="vgroup__toggle" title="Collapse / expand"><span class="vgroup__chev">▾</span></button>
+          ${view.sort.field === "manual" ? '<span class="vgroup__handle" title="Drag to reorder groups"><svg viewBox="0 0 24 24" width="13" height="13"><circle cx="9" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg></span>' : ""}
+          <span class="vgroup__label">${Utils.escapeHtml(group.label)}</span>
+          <span class="vgroup__count">${group.items.length}</span>
+        </header>
+        <div class="vgroup__body video-grid">${cards}</div>
+      </section>`;
+  },
+
+  wireGroups(view) {
+    document.querySelectorAll("#videoGrid .vgroup").forEach((sec) => {
+      const key = sec.dataset.group;
+      sec.querySelector(".vgroup__toggle").addEventListener("click", () => {
+        sec.classList.toggle("is-collapsed");
+        const collapsed = { ...(view.collapsed || {}) };
+        if (sec.classList.contains("is-collapsed")) collapsed[key] = true; else delete collapsed[key];
+        // persist quietly without a full re-render (DOM already toggled)
+        const v = Grouping.normalize({ ...view, collapsed }, this._fields);
+        if (State.lists[State.activeListId]) State.lists[State.activeListId].view = v;
+        this._view = v;
+        DB.list(State.activeListId).update({ view: v }).catch(() => {});
+      });
+    });
+  },
+
+  setupGroupSortable(view) {
+    if (this.groupSortable) { this.groupSortable.destroy(); this.groupSortable = null; }
+    if (view.sort.field !== "manual") return;   // groups only reorder in manual sort
+    const grid = document.getElementById("videoGrid");
+    this.groupSortable = Sortable.create(grid, {
+      handle: ".vgroup__handle",
+      draggable: ".vgroup",
+      animation: 160,
+      onEnd: () => {
+        const order = [...document.querySelectorAll("#videoGrid .vgroup")].map((s) => s.dataset.group);
+        const v = Grouping.normalize({ ...this._view, groupOrder: order }, this._fields);
+        if (State.lists[State.activeListId]) State.lists[State.activeListId].view = v;
+        this._view = v;
+        DB.list(State.activeListId).update({ view: v }).catch(() => {});
+      },
+    });
+  },
+
+  teardownSortable() {
+    if (this.sortable) { this.sortable.destroy(); this.sortable = null; }
   },
 
   cardHtml(v) {
     if (v.type === "note") return this.noteCardHtml(v);
+    if (v.type === "channel") return this.channelCardHtml(v);
     const hasNote = !!(v.note && v.note.trim());
     const avatar = v.channelThumbnailUrl
       ? `<img class="vcard__avatar" src="${Utils.escapeHtml(v.channelThumbnailUrl)}" alt="" referrerpolicy="no-referrer" />`
@@ -196,11 +362,63 @@ const Videos = {
       </div>`;
   },
 
+  channelCardHtml(v) {
+    const avatar = v.channelThumbnailUrl || v.thumbnail || "";
+    const name = v.title || v.channelName || "Channel";
+    const hasNote = !!(v.note && v.note.trim());
+    const stats = [
+      v.subscribers && v.subscribers !== "0" ? `${v.subscribers} subscribers` : null,
+      v.videoCount && v.videoCount !== "0" ? `${v.videoCount} videos` : null,
+    ].filter(Boolean).join(" • ");
+    return `
+      <div class="vcard vcard--channel ${hasNote ? "has-note" : ""}" data-id="${v._key || v.id}" data-channel-item="1"
+           data-title="${Utils.escapeHtml(name.toLowerCase())}" data-channel="${Utils.escapeHtml((v.channelName || "").toLowerCase())}" data-body="${Utils.escapeHtml((v.note || "").toLowerCase())}">
+        <div class="vchan__banner" data-act="open" ${v.banner ? `style="background-image:url('${Utils.escapeHtml(v.banner)}')"` : ""}>
+          <span class="vchan__tag"><svg viewBox="0 0 24 24" width="11" height="11"><path fill="currentColor" d="M3 7h18v11H3zM3 7l9 5 9-5"/></svg> Channel</span>
+        </div>
+        <div class="vcard__actions">
+          <button class="vcard__abtn vcard__note-btn ${hasNote ? "has-note" : ""}" data-act="note" title="${hasNote ? "Open note" : "Add note"}">
+            ${hasNote
+              ? '<svg viewBox="0 0 24 24" width="15" height="15"><path fill="currentColor" d="M4 4h16v12H7l-3 3z"/></svg>'
+              : '<svg viewBox="0 0 24 24" width="15" height="15"><path fill="none" stroke="currentColor" stroke-width="2" d="M4 4h16v12H7l-3 3z"/></svg>'}
+          </button>
+          <button class="vcard__abtn" data-act="menu" title="More">
+            <svg viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="5" r="1.7" fill="currentColor"/><circle cx="12" cy="12" r="1.7" fill="currentColor"/><circle cx="12" cy="19" r="1.7" fill="currentColor"/></svg>
+          </button>
+        </div>
+        <div class="vchan__body" data-act="open">
+          ${avatar
+            ? `<img class="vchan__avatar" src="${Utils.escapeHtml(avatar)}" alt="" referrerpolicy="no-referrer" />`
+            : `<div class="vchan__avatar is-ph">${Utils.escapeHtml(name.charAt(0).toUpperCase())}</div>`}
+          <div class="vchan__meta">
+            <div class="vchan__name">${Utils.escapeHtml(name)}</div>
+            <div class="vchan__stats">${Utils.escapeHtml(stats)}</div>
+          </div>
+        </div>
+      </div>`;
+  },
+
   wireCards() {
     const grid = document.getElementById("videoGrid");
     grid.querySelectorAll(".vcard").forEach((card) => {
       const vid = card.dataset.id;
       const isNote = card.dataset.note === "1";
+      const isChannel = card.dataset.channelItem === "1";
+
+      // channel cards: open the editor (notes allowed); "Open Channel" is in the menu
+      if (isChannel) {
+        const open = () => Notes.openInline(vid);
+        card.querySelectorAll('[data-act="open"]').forEach((el) => {
+          el.addEventListener("dblclick", open);
+          let lastTap = 0;
+          el.addEventListener("touchend", () => { const now = Date.now(); if (now - lastTap < 320) open(); lastTap = now; });
+        });
+        const noteBtn = card.querySelector('[data-act="note"]');
+        if (noteBtn) noteBtn.addEventListener("click", (e) => { e.stopPropagation(); Notes.openInline(vid); });
+        card.querySelector('[data-act="menu"]').addEventListener("click", (e) => { e.stopPropagation(); this.openCardMenu(e.currentTarget, vid); });
+        return;
+      }
+
       // double-click / double-tap face → open (note editor for notes, YouTube for videos)
       const face = card.querySelector(".vcard__thumb, .vcard__noteface");
       const openFace = () => { if (isNote) Notes.openInline(vid); else this.openOnYouTube(vid); };
@@ -216,6 +434,14 @@ const Videos = {
       card.querySelector('[data-act="note"]').addEventListener("click", (e) => { e.stopPropagation(); Notes.openInline(vid); });
       card.querySelector('[data-act="menu"]').addEventListener("click", (e) => { e.stopPropagation(); this.openCardMenu(e.currentTarget, vid); });
     });
+  },
+
+  openChannelOnYouTube(vid) {
+    const v = State.videos[vid];
+    if (!v) return;
+    const url = v.channelId ? `https://www.youtube.com/channel/${v.channelId}`
+      : v.customUrl ? `https://www.youtube.com/${v.customUrl}` : "https://www.youtube.com";
+    window.open(url, "_blank", "noopener");
   },
 
   updateCardNoteState(vid) {
@@ -242,6 +468,18 @@ const Videos = {
   openCardMenu(btn, vid) {
     const v = State.videos[vid];
     if (!v) return;
+    if (v.type === "channel") {
+      const items = [
+        { key: "note", ico: "📝", text: "Open Note", onClick: () => Notes.openInline(vid) },
+        { key: "open", ico: "📺", text: "Open Channel", onClick: () => this.openChannelOnYouTube(vid) },
+        { key: "refresh", ico: "🔄", text: "Refresh", onClick: () => this.refreshChannel(vid) },
+        { key: "move", ico: "📂", text: "Move to list…", onClick: () => this.openMoveMenu(btn, vid) },
+        { divider: true },
+        { key: "delete", ico: "🗑️", text: "Delete", danger: true, onClick: () => this.deleteVideo(vid) },
+      ];
+      UI.floatingMenu(btn, items, { align: "right" });
+      return;
+    }
     if (v.type === "note") {
       const items = [
         { key: "open", ico: "📖", text: "Open Note", onClick: () => Notes.openInline(vid) },
@@ -397,6 +635,69 @@ const Videos = {
     } catch (e) { UI.toast("Couldn't create note: " + e.message, "error"); }
   },
 
+  // ---------- ADD CHANNEL ----------
+  openAddChannelModal() {
+    if (!State.uid) { UI.toast("Please sign in first", "info"); return; }
+    const l = State.lists[State.activeListId];
+    if (!l) { UI.toast("Select a list first", "info"); return; }
+    UI.openModal({
+      title: "Add Channel",
+      bodyHtml: `
+        <div class="field">
+          <label>YouTube channel link or @handle</label>
+          <input class="input" id="acUrl" placeholder="https://www.youtube.com/@channel" />
+          <p class="hint">Paste a channel URL, an @handle, or a channel ID.</p>
+        </div>`,
+      footHtml: `<button class="btn btn--ghost" data-act="cancel">Cancel</button>
+                 <button class="btn btn--primary" data-act="add">Add Channel</button>`,
+      onMount: (modal, close) => {
+        const input = modal.querySelector("#acUrl");
+        input.focus();
+        const submit = async () => {
+          const v = input.value.trim();
+          if (!v) { input.focus(); return; }
+          close();
+          await this.addChannel(v);
+        };
+        modal.querySelector('[data-act="add"]').addEventListener("click", submit);
+        modal.querySelector('[data-act="cancel"]').addEventListener("click", () => close());
+        input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
+      },
+    });
+  },
+
+  async addChannel(input) {
+    const listId = State.activeListId;
+    if (!listId) return;
+    UI.showLoading("Fetching channel…");
+    try {
+      const data = await YT.fetchChannelData(input);
+      if (!data) { UI.toast("Channel not found — check the link or handle", "error"); return; }
+      if (Object.values(State.videos).some((v) => v.type === "channel" && v.channelId === data.channelId)) {
+        UI.toast("That channel is already in this list", "info"); return;
+      }
+      const minOrder = Math.min(0, ...Object.values(State.videos).map((v) => v.order ?? 0));
+      const record = Object.assign({ type: "channel", order: minOrder - 1, timestamp: Date.now(), createdAt: Date.now() }, data);
+      await DB.videos(listId).push().set(record);
+      UI.toast("Channel added", "success");
+    } catch (e) { UI.toast("Couldn't add channel: " + e.message, "error"); }
+    finally { UI.hideLoading(); }
+  },
+
+  async refreshChannel(vid) {
+    const v = State.videos[vid];
+    if (!v || v.type !== "channel") return;
+    UI.showLoading("Refreshing channel…");
+    try {
+      const data = await YT.fetchChannelData(v.channelId || v.customUrl || v.title);
+      if (!data) { UI.toast("Channel unavailable on YouTube — kept existing data", "info"); return; }
+      delete data.order;
+      await DB.video(State.activeListId, vid).update(data);
+      UI.toast("Channel refreshed", "success", 1500);
+    } catch (e) { UI.toast("Refresh failed: " + e.message, "error"); }
+    finally { UI.hideLoading(); }
+  },
+
   // ---------- CREATE A BLANK NOTE AND OPEN IT (Notion-style) ----------
   async createNoteAndOpen() {
     if (!State.uid) { UI.toast("Please sign in first", "info"); return; }
@@ -430,9 +731,10 @@ const Videos = {
   // ---------- DELETE ----------
   async deleteVideo(vid) {
     const v = State.videos[vid];
-    const isNote = v && v.type === "note";
-    const label = isNote ? (v.name || "this note") : (v?.title || "this video");
-    const ok = await UI.confirm({ title: isNote ? "Delete note?" : "Delete video?", message: `“${Utils.escapeHtml(String(label).slice(0,80))}” will be removed from this list.`, confirmText: "Delete" });
+    const kind = v && v.type === "note" ? "note" : (v && v.type === "channel" ? "channel" : "video");
+    const label = kind === "note" ? (v.name || "this note") : (v?.title || ("this " + kind));
+    const titleMap = { note: "Delete note?", channel: "Delete channel?", video: "Delete video?" };
+    const ok = await UI.confirm({ title: titleMap[kind], message: `“${Utils.escapeHtml(String(label).slice(0,80))}” will be removed from this list.`, confirmText: "Delete" });
     if (!ok) return;
     await DB.video(State.activeListId, vid).remove();
     UI.toast("Video deleted", "success", 1500);
@@ -447,7 +749,8 @@ const Videos = {
     if (!v) return;
     const srcListId = State.activeListId;
     const srcList = State.lists[srcListId];
-    const isNote = v.type === "note";
+    // notes & channels skip video-only logic (dedupe by youtubeId, playlist re-pull)
+    const isNote = v.type === "note" || v.type === "channel";
     UI.showLoading("Moving…");
     try {
       const destVidsSnap = await DB.videos(destListId).once("value");
@@ -603,6 +906,11 @@ const Videos = {
       if (!term) { card.classList.remove("hidden"); return; }
       const hay = `${card.dataset.title} ${card.dataset.channel} ${card.dataset.yt || ""} ${card.dataset.body || ""}`.toLowerCase();
       card.classList.toggle("hidden", !hay.includes(term));
+    });
+    // hide group sections that have no visible cards after a search
+    document.querySelectorAll("#videoGrid .vgroup").forEach((sec) => {
+      const anyVisible = [...sec.querySelectorAll(".vcard")].some((c) => !c.classList.contains("hidden"));
+      sec.classList.toggle("group-hidden", !anyVisible);
     });
   },
 

@@ -891,6 +891,8 @@ const Transfer = {
       archivedAt: list.isArchived ? (Date.now()) : null,
     };
     if (Object.keys(videos).length) data.videos = videos;
+    if (list.props) data.props = list.props;   // keep custom property schema
+    if (list.view) data.view = list.view;      // keep group/sort/filter view
     await ref.set(data);
   },
 

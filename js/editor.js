@@ -342,7 +342,7 @@
         return {
           youtubeId: { default: null }, title: { default: "" }, thumbnail: { default: "" },
           channelName: { default: "" }, channelThumbnailUrl: { default: "" }, views: { default: "" },
-          duration: { default: "" }, publishedAt: { default: "" },
+          duration: { default: "" }, publishedAt: { default: "" }, width: { default: null },
         };
       },
       parseHTML() { return [{ tag: "div[data-video-card]" }]; },
@@ -355,8 +355,41 @@
           dom.className = "ed-vcard";
           dom.setAttribute("data-video-card", "");
           dom.contentEditable = "false";
-          const draw = (a) => { dom.innerHTML = vcardInnerHtml(a); };
+          const applyWidth = (w) => { dom.style.width = w ? w + "px" : ""; };
+          const draw = (a) => {
+            dom.innerHTML = vcardInnerHtml(a);
+            // resize handle (drag to change width)
+            const grip = document.createElement("div");
+            grip.className = "ed-vcard__resize";
+            grip.contentEditable = "false";
+            dom.appendChild(grip);
+            grip.addEventListener("mousedown", (ev) => {
+              ev.preventDefault(); ev.stopPropagation();
+              const startX = ev.clientX;
+              const startW = dom.getBoundingClientRect().width;
+              const max = (dom.parentElement ? dom.parentElement.getBoundingClientRect().width : 760);
+              const onMove = (m) => {
+                let w = Math.round(startW + (m.clientX - startX));
+                w = Math.max(220, Math.min(w, Math.round(max)));
+                applyWidth(w); dom.dataset._w = w;
+              };
+              const onUp = () => {
+                document.removeEventListener("mousemove", onMove, true);
+                document.removeEventListener("mouseup", onUp, true);
+                const w = parseInt(dom.dataset._w || "0", 10);
+                if (w && typeof getPos === "function") {
+                  try {
+                    editor.view.dispatch(editor.state.tr.setNodeMarkup(getPos(), undefined, Object.assign({}, node.attrs, { width: w })));
+                    NoteEditor._dirty = true; NoteEditor._scheduleSave();
+                  } catch (_) {}
+                }
+              };
+              document.addEventListener("mousemove", onMove, true);
+              document.addEventListener("mouseup", onUp, true);
+            });
+          };
           draw(node.attrs);
+          applyWidth(node.attrs.width);
           // Hydrate a card that only has an id (e.g. re-parsed from old markdown).
           if (node.attrs.youtubeId && (!node.attrs.title || !node.attrs.thumbnail)) {
             YT.fetchVideoData(node.attrs.youtubeId).then((d) => {
@@ -366,15 +399,15 @@
                 channelThumbnailUrl: d.channelThumbnailUrl || "", views: d.views || "",
                 duration: d.duration || "", publishedAt: d.publishedAt || "",
               });
-              draw(merged);
+              draw(merged); applyWidth(merged.width);
               try {
                 if (typeof getPos === "function") {
-                  editor.view.dispatch(editor.state.tr.setNodeMarkup(getPos(), undefined, merged));
+                  editor.view.dispatch(editor.state.tr.setNodeMarkup(getPos(), undefined, merged).setMeta("ed-trailing", true).setMeta("addToHistory", false));
                 }
               } catch (_) { /* visual update already applied */ }
             }).catch(() => {});
           }
-          return { dom };
+          return { dom, ignoreMutation: () => true };
         };
       },
     });
@@ -466,11 +499,12 @@
           <button class="ed-btn ed-btn--primary" id="edDone">Done</button>
         </div>
         <div class="ed-scroll">
+          ${isNote ? "" : this._videoCoverHtml(item)}
           <div class="ed-doc">
-            ${isNote ? "" : `<div class="ed-vcard ed-vcard--context">${vcardInnerHtml(item)}</div>`}
             ${isNote
               ? `<textarea class="ed-title" id="edTitle" rows="1" placeholder="Untitled" spellcheck="false">${esc(this._titleVal)}</textarea>`
-              : `<h1 class="ed-title is-static">${esc(item.title || "Untitled")}</h1>`}
+              : `<h1 class="ed-title is-static">${esc(item.title || "Untitled")}</h1>${this._videoPropsHtml(item)}`}
+            <div class="ed-cprops" id="edCProps"></div>
             <div class="ed-body" id="edBody"></div>
           </div>
         </div>`;
@@ -480,6 +514,8 @@
       page.querySelector(".ed-back").addEventListener("click", () => self.close());
       page.querySelector("#edDone").addEventListener("click", () => self.close());
       page.querySelector("#edCopyMd").addEventListener("click", () => self._copyAll());
+      const propsToggle = page.querySelector("#edPropsToggle");
+      if (propsToggle) propsToggle.addEventListener("click", () => page.querySelector("#edProps").classList.toggle("is-collapsed"));
 
       if (isNote) {
         const titleEl = page.querySelector("#edTitle");
@@ -500,11 +536,171 @@
       };
       document.addEventListener("keydown", this._onKeyDown);
 
+      this._renderCustomProps();
       this._buildEditor(page.querySelector("#edBody"), this._loadDoc(item));
 
-      // focus: empty new note -> title; otherwise the body
+      // always open scrolled to the very top (focusing 'end' used to jump to the middle)
+      const scroll = page.querySelector(".ed-scroll");
       if (isNote && !this._titleVal) page.querySelector("#edTitle").focus();
-      else if (this._editor) this._editor.commands.focus("end");
+      else if (this._editor) this._editor.commands.focus("start");
+      if (scroll) { scroll.scrollTop = 0; requestAnimationFrame(() => { scroll.scrollTop = 0; }); }
+    },
+
+    // ---- video page header (Notion-style cover + built-in properties) ----
+    _videoCoverHtml(item) {
+      const isChan = item.type === "channel";
+      let img;
+      if (isChan) img = item.banner || "";   // channels: only a real banner makes a good cover
+      else img = item.thumbnail || (item.youtubeId ? `https://i.ytimg.com/vi/${item.youtubeId}/hqdefault.jpg` : "");
+      if (!img) return "";
+      return `<div class="ed-cover ${isChan ? "is-channel" : ""}"><img src="${esc(img)}" alt="" referrerpolicy="no-referrer" /></div>`;
+    },
+    _videoPropsHtml(item) {
+      const rows = [];
+      const add = (ico, k, v) => { if (v) rows.push(`<div class="ed-prop"><span class="ed-prop__k">${ico} ${esc(k)}</span><span class="ed-prop__v">${esc(v)}</span></div>`); };
+      let link = "";
+      if (item.type === "channel") {
+        const av = item.channelThumbnailUrl || item.thumbnail || "";
+        if (av) rows.push(`<div class="ed-prop"><span class="ed-prop__k">📺 Channel</span><span class="ed-prop__v"><img class="ed-prop__avatar" src="${esc(av)}" referrerpolicy="no-referrer"/> ${esc(item.channelName || item.title || "")}</span></div>`);
+        add("🔔", "Subscribers", (item.subscribers && item.subscribers !== "0") ? `${item.subscribers} subscribers` : "");
+        add("🎬", "Videos", (item.videoCount && item.videoCount !== "0") ? `${item.videoCount} videos` : "");
+        add("📅", "Joined", item.publishedAt ? Utils.formatDate(item.publishedAt) : "");
+        const url = item.channelId ? `https://www.youtube.com/channel/${item.channelId}` : (item.customUrl ? `https://www.youtube.com/${item.customUrl}` : "");
+        if (url) link = `<div class="ed-prop"><a class="ed-prop__link" href="${esc(url)}" target="_blank" rel="noopener">📺 Open on YouTube</a></div>`;
+      } else {
+        add("📺", "Channel", item.channelName || "");
+        add("👁", "Views", item.views ? `${item.views} views` : "");
+        add("⏱", "Duration", item.duration || "");
+        add("🔔", "Subscribers", (item.subscribers && item.subscribers !== "0") ? `${item.subscribers} subs` : "");
+        add("📅", "Published", item.publishedAt ? Utils.formatDate(item.publishedAt) : "");
+        if (item.youtubeId) link = `<div class="ed-prop"><a class="ed-prop__link" href="https://www.youtube.com/watch?v=${esc(item.youtubeId)}" target="_blank" rel="noopener">▶ Watch on YouTube</a></div>`;
+      }
+      return `<div class="ed-props" id="edProps">
+        <button class="ed-props__toggle" id="edPropsToggle"><span class="ed-props__chev">▾</span> Properties</button>
+        <div class="ed-props__body">${rows.join("")}${link}</div>
+      </div>`;
+    },
+
+    // ---- custom (user-defined) properties ----
+    _list() { return State.lists[this._listId] || {}; },
+    _orderedProps() {
+      const props = this._list().props || {};
+      return Object.values(props).filter((p) => p && p.id).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    },
+
+    _renderCustomProps() {
+      const box = document.getElementById("edCProps");
+      if (!box) return;
+      const props = this._orderedProps();
+      const pvals = (this._item && this._item.pvals) || {};
+      box.innerHTML = props.map((p) => `
+        <div class="ed-cprop" data-pid="${esc(p.id)}">
+          <button class="ed-cprop__name" data-act="propmenu">${esc(Grouping.PROP_TYPES.find((t) => t.type === p.type)?.ico || "◆")} ${esc(p.name)}</button>
+          <div class="ed-cprop__val">${this._valEditorHtml(p, pvals[p.id])}</div>
+        </div>`).join("") +
+        `<button class="ed-cprop__add" id="edAddProp">＋ Add a property</button>`;
+
+      box.querySelectorAll(".ed-cprop").forEach((row) => {
+        const pid = row.dataset.pid;
+        const p = (this._list().props || {})[pid];
+        if (!p) return;
+        row.querySelector('[data-act="propmenu"]').addEventListener("click", (e) => this._propMenu(e.currentTarget, p));
+        this._wireValEditor(row, p);
+      });
+      const add = box.querySelector("#edAddProp");
+      if (add) add.addEventListener("click", (e) => this._addPropertyMenu(e.currentTarget));
+    },
+
+    _valEditorHtml(p, val) {
+      switch (p.type) {
+        case "checkbox": return `<input type="checkbox" class="ed-pv-check" ${val ? "checked" : ""} />`;
+        case "number": return `<input type="number" class="ed-pv-input" value="${esc(val == null ? "" : val)}" placeholder="Empty" />`;
+        case "date": { const d = val ? new Date(Number(val)) : null; const s = d && !isNaN(d) ? d.toISOString().slice(0, 10) : ""; return `<input type="date" class="ed-pv-date" value="${s}" />`; }
+        case "url": return `<input type="url" class="ed-pv-input" value="${esc(val || "")}" placeholder="https://…" />`;
+        case "select": return `<button class="ed-pv-select">${val ? esc(val) : '<span class="ed-pv-empty">Empty</span>'}</button>`;
+        case "multi": { const a = Array.isArray(val) ? val : []; return `<div class="ed-pv-multi">${a.map((x) => `<span class="ed-pv-chip">${esc(x)}<button data-rm="${esc(x)}">×</button></span>`).join("")}<button class="ed-pv-add">＋</button></div>`; }
+        default: return `<input type="text" class="ed-pv-input" value="${esc(val || "")}" placeholder="Empty" />`;
+      }
+    },
+
+    _wireValEditor(row, p) {
+      const pid = p.id;
+      const cur = ((this._item && this._item.pvals) || {})[pid];
+      if (p.type === "checkbox") { const el = row.querySelector(".ed-pv-check"); el.addEventListener("change", () => this._setPVal(pid, el.checked)); return; }
+      if (p.type === "number") { const el = row.querySelector(".ed-pv-input"); el.addEventListener("change", () => this._setPVal(pid, el.value === "" ? null : Number(el.value))); return; }
+      if (p.type === "date") { const el = row.querySelector(".ed-pv-date"); el.addEventListener("change", () => this._setPVal(pid, el.value ? new Date(el.value).getTime() : null)); return; }
+      if (p.type === "url" || p.type === "text") { const el = row.querySelector(".ed-pv-input"); el.addEventListener("change", () => this._setPVal(pid, el.value)); return; }
+      if (p.type === "select") {
+        row.querySelector(".ed-pv-select").addEventListener("click", (e) => {
+          const opts = (p.options || []).map((o) => ({ key: o.name, ico: "•", text: o.name, onClick: () => this._setPVal(pid, o.name) }));
+          opts.push({ key: "_new", ico: "＋", text: "New option…", onClick: async () => { const n = await UI.prompt({ title: "New option", label: "Option name", confirmText: "Add" }); if (n && n.trim()) { this._addOption(p, n.trim()); this._setPVal(pid, n.trim()); } } });
+          if (cur) opts.push({ key: "_clear", ico: "✕", text: "Clear", onClick: () => this._setPVal(pid, "") });
+          UI.floatingMenu(e.currentTarget, opts, { align: "left" });
+        });
+        return;
+      }
+      if (p.type === "multi") {
+        row.querySelectorAll(".ed-pv-chip button[data-rm]").forEach((b) => b.addEventListener("click", () => {
+          const arr = (((this._item.pvals || {})[pid]) || []).filter((x) => x !== b.dataset.rm);
+          this._setPVal(pid, arr);
+        }));
+        const add = row.querySelector(".ed-pv-add");
+        if (add) add.addEventListener("click", (e) => {
+          const arr = ((this._item.pvals || {})[pid]) || [];
+          const opts = (p.options || []).filter((o) => !arr.includes(o.name)).map((o) => ({ key: o.name, ico: "•", text: o.name, onClick: () => this._setPVal(pid, [...arr, o.name]) }));
+          opts.push({ key: "_new", ico: "＋", text: "New option…", onClick: async () => { const n = await UI.prompt({ title: "New option", label: "Option name", confirmText: "Add" }); if (n && n.trim()) { this._addOption(p, n.trim()); this._setPVal(pid, [...arr, n.trim()]); } } });
+          UI.floatingMenu(e.currentTarget, opts, { align: "left" });
+        });
+        return;
+      }
+    },
+
+    async _setPVal(pid, val) {
+      if (!this._item) return;
+      const pvals = Object.assign({}, this._item.pvals || {});
+      if (val == null || val === "" || (Array.isArray(val) && val.length === 0)) delete pvals[pid];
+      else pvals[pid] = val;
+      this._item.pvals = pvals;
+      if (State.videos[this._itemId]) State.videos[this._itemId].pvals = pvals;
+      this._renderCustomProps();
+      try { await DB.video(this._listId, this._itemId).update({ pvals: pvals }); } catch (_) {}
+    },
+
+    _saveSchema(props) {
+      const id = this._listId;
+      if (State.lists[id]) State.lists[id].props = props;
+      this._renderCustomProps();
+      DB.list(id).update({ props }).catch(() => {});
+    },
+    _addOption(p, name) {
+      const props = Object.assign({}, this._list().props || {});
+      const cur = props[p.id] || p;
+      const options = (cur.options || []).slice();
+      if (!options.some((o) => o.name === name)) options.push({ id: Utils.uid("o"), name });
+      props[p.id] = Object.assign({}, cur, { options });
+      this._saveSchema(props);
+    },
+
+    _addPropertyMenu(anchor) {
+      const items = Grouping.PROP_TYPES.map((t) => ({ key: t.type, ico: t.ico, text: t.label, onClick: () => this._createProperty(t.type) }));
+      UI.floatingMenu(anchor, items, { align: "left" });
+    },
+    async _createProperty(type) {
+      const name = await UI.prompt({ title: "New property", label: "Property name", placeholder: (Grouping.PROP_TYPES.find((t) => t.type === type) || {}).label, confirmText: "Add" });
+      if (name == null || !name.trim()) return;
+      const props = Object.assign({}, this._list().props || {});
+      const maxOrder = Math.max(-1, ...Object.values(props).map((p) => p.order ?? 0));
+      const id = Utils.uid("p");
+      props[id] = { id, name: name.trim(), type, options: [], order: maxOrder + 1 };
+      this._saveSchema(props);
+    },
+    _propMenu(anchor, p) {
+      const items = [
+        { key: "rename", ico: "✏️", text: "Rename", onClick: async () => { const n = await UI.prompt({ title: "Rename property", label: "Name", value: p.name, confirmText: "Rename" }); if (n && n.trim()) { const props = Object.assign({}, this._list().props || {}); props[p.id] = Object.assign({}, props[p.id], { name: n.trim() }); this._saveSchema(props); } } },
+        { divider: true },
+        { key: "delete", ico: "🗑️", text: "Delete property", danger: true, onClick: () => { const props = Object.assign({}, this._list().props || {}); delete props[p.id]; this._saveSchema(props); } },
+      ];
+      UI.floatingMenu(anchor, items, { align: "left" });
     },
 
     _loadDoc(item) {
@@ -528,7 +724,8 @@
         extensions: [
           T.StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
           T.Placeholder.configure({
-            includeChildren: true,
+            includeChildren: false,
+            showOnlyCurrent: true,
             placeholder: ({ node }) => node.type.name === "heading" ? "Heading" : "Type '/' for commands…",
           }),
           T.Underline,
@@ -558,14 +755,47 @@
             return false;
           },
         },
-        onUpdate: () => { self._dirty = true; self._scheduleSave(); self._handleSlash(); },
-        onSelectionUpdate: () => { self._handleSlash(); self._updateBubble(); },
-        onBlur: () => { setTimeout(() => self._maybeHideBubble(), 120); },
+        onUpdate: ({ transaction }) => {
+          if (!transaction.getMeta("ed-trailing")) { self._dirty = true; self._scheduleSave(); }
+          self._ensureTrailing();
+          self._handleSlash();
+          self._syncTableToolbar();
+          self._hideBubble();   // bubble only reappears once a selection settles
+        },
+        onSelectionUpdate: () => { self._handleSlash(); self._syncTableToolbar(); },
+        onBlur: () => { setTimeout(() => self._maybeHideBubble(), 150); },
       });
 
-      this._onScroll = () => { self._hideSlash(); self._updateBubble(); };
+      this._ensureTrailing();
+
+      // Bubble toolbar shows only after a selection is *finished* (mouseup /
+      // keyboard selection) — repositioning mid-drag caused the jitter.
+      this._onScroll = () => { self._hideSlash(); self._hideBubble(); self._syncTableToolbar(); };
+      this._onMouseUp = () => setTimeout(() => self._syncBubble(), 0);
+      this._onKeyUp = (e) => {
+        if (e.shiftKey || (e.key || "").startsWith("Arrow") || ((e.ctrlKey || e.metaKey) && (e.key || "").toLowerCase() === "a")) self._syncBubble();
+      };
       const scroller = document.querySelector("#editorPage .ed-scroll");
       if (scroller) scroller.addEventListener("scroll", this._onScroll, true);
+      document.addEventListener("mouseup", this._onMouseUp, true);
+      this._editor.view.dom.addEventListener("keyup", this._onKeyUp, true);
+
+      this._initHandle();
+    },
+
+    // Always keep a typeable line after a table/embed/code block/divider so the
+    // user can escape it when it sits at the very end of the document.
+    _ensureTrailing() {
+      const ed = this._editor;
+      if (!ed) return;
+      const doc = ed.state.doc;
+      const last = doc.lastChild;
+      if (!last) return;
+      if (!["table", "videoCard", "horizontalRule", "codeBlock"].includes(last.type.name)) return;
+      try {
+        const para = ed.state.schema.nodes.paragraph.create();
+        ed.view.dispatch(ed.state.tr.insert(doc.content.size, para).setMeta("ed-trailing", true).setMeta("addToHistory", false));
+      } catch (_) {}
     },
 
     /* ---------------- saving ---------------- */
@@ -603,17 +833,21 @@
 
     async close() {
       try { await this._persist(); } catch (_) {}
-      this._hideSlash(); this._hideBubble();
+      this._hideSlash(); this._hideBubble(); this._closeBlockMenu(); this._hideTableToolbar();
       const scroller = document.querySelector("#editorPage .ed-scroll");
       if (scroller && this._onScroll) scroller.removeEventListener("scroll", this._onScroll, true);
       if (this._onKeyDown) document.removeEventListener("keydown", this._onKeyDown);
-      if (this._editor) { try { this._editor.destroy(); } catch (_) {} this._editor = null; }
+      if (this._onMouseUp) document.removeEventListener("mouseup", this._onMouseUp, true);
+      if (this._editor) {
+        if (this._onKeyUp) { try { this._editor.view.dom.removeEventListener("keyup", this._onKeyUp, true); } catch (_) {} }
+        try { this._editor.destroy(); } catch (_) {} this._editor = null;
+      }
       const page = document.getElementById("editorPage");
-      page.hidden = true; page.innerHTML = "";   // detaches slash/bubble menus too
+      page.hidden = true; page.innerHTML = "";   // detaches slash/bubble/handle menus too
       document.body.classList.remove("editor-open");
       this._itemId = this._listId = this._item = null;
-      this._onKeyDown = this._onScroll = null;
-      this._bubbleEl = null;   // was a child of #editorPage; rebuild on next open
+      this._onKeyDown = this._onScroll = this._onMouseUp = this._onKeyUp = null;
+      this._bubbleEl = null; this._handleEl = null; this._handleBlock = null; this._tableTbEl = null;  // children of #editorPage; rebuilt on next open
     },
 
     async _copyAll() {
@@ -706,7 +940,11 @@
 
     _highlightSlash() {
       if (!this._slashEl) return;
-      this._slashEl.querySelectorAll(".ed-slash__item").forEach((b, i) => b.classList.toggle("is-sel", i === this._slashIndex));
+      this._slashEl.querySelectorAll(".ed-slash__item").forEach((b, i) => {
+        const on = i === this._slashIndex;
+        b.classList.toggle("is-sel", on);
+        if (on) b.scrollIntoView({ block: "nearest" });
+      });
     },
 
     _slashKeys(e) {
@@ -737,7 +975,7 @@
     },
 
     /* ---------------- bubble (selection) menu ---------------- */
-    _updateBubble() {
+    _syncBubble() {
       const ed = this._editor;
       if (!ed) return;
       const sel = ed.state.selection;
@@ -823,6 +1061,212 @@
       el.querySelectorAll(".ed-bb[data-mark]").forEach((b) => b.classList.toggle("is-on", ed.isActive(b.dataset.mark)));
       const lk = el.querySelector('[data-act="link"]');
       if (lk) lk.classList.toggle("is-on", ed.isActive("link"));
+    },
+
+    /* ---------------- table toolbar (add/remove rows & columns) ---------------- */
+    _activeTableEl() {
+      const ed = this._editor;
+      try {
+        const at = ed.view.domAtPos(ed.state.selection.from);
+        let n = at && at.node;
+        if (n && n.nodeType === 3) n = n.parentElement;
+        const cell = n && n.closest && n.closest("td,th");
+        if (cell) return cell.closest("table");
+      } catch (_) {}
+      return null;
+    },
+    _syncTableToolbar() {
+      const ed = this._editor;
+      if (!ed || !ed.isActive || !ed.isActive("table")) return this._hideTableToolbar();
+      const tbl = this._activeTableEl();
+      if (!tbl) return this._hideTableToolbar();
+      let el = this._tableTbEl;
+      if (!el) {
+        el = document.createElement("div");
+        el.className = "ed-tabletb"; el.hidden = true;
+        el.innerHTML = [
+          ["addColumnAfter", "＋ Col", "Insert column"],
+          ["addRowAfter", "＋ Row", "Insert row"],
+          ["deleteColumn", "－ Col", "Delete column"],
+          ["deleteRow", "－ Row", "Delete row"],
+          ["toggleHeaderRow", "H", "Toggle header row"],
+          ["deleteTable", "🗑", "Delete table"],
+        ].map(([k, t, title]) => `<button class="ed-ttb ${k === "deleteTable" ? "is-danger" : ""}" data-k="${k}" title="${title}">${t}</button>`).join("");
+        document.getElementById("editorPage").appendChild(el);
+        this._tableTbEl = el;
+        el.addEventListener("mousedown", (e) => e.preventDefault());
+        el.querySelectorAll(".ed-ttb").forEach((b) => b.addEventListener("click", () => {
+          const k = b.dataset.k;
+          const c = ed.chain().focus();
+          if (typeof c[k] === "function") c[k]().run();
+          this._syncTableToolbar();
+        }));
+      }
+      el.hidden = false;
+      const b = tbl.getBoundingClientRect();
+      const pr = document.getElementById("editorPage").getBoundingClientRect();
+      let top = b.top - pr.top - el.offsetHeight - 6;
+      if (top < 52) top = b.top - pr.top + 6;
+      el.style.left = Math.max(12, b.left - pr.left) + "px";
+      el.style.top = top + "px";
+    },
+    _hideTableToolbar() { if (this._tableTbEl) this._tableTbEl.hidden = true; },
+
+    /* ---------------- block drag handle (Notion-style ⋮⋮) ---------------- */
+    _initHandle() {
+      const self = this;
+      const page = document.getElementById("editorPage");
+      const docEl = page.querySelector(".ed-doc");
+      if (!docEl) return;
+      const handle = document.createElement("div");
+      handle.className = "ed-handle";
+      handle.hidden = true;
+      handle.innerHTML = '<span class="ed-handle__grip" draggable="false"><svg viewBox="0 0 24 24" width="16" height="16"><circle cx="9" cy="5" r="1.7"/><circle cx="9" cy="12" r="1.7"/><circle cx="9" cy="19" r="1.7"/><circle cx="15" cy="5" r="1.7"/><circle cx="15" cy="12" r="1.7"/><circle cx="15" cy="19" r="1.7"/></svg></span>';
+      docEl.appendChild(handle);          // child of .ed-doc → hovering it keeps it alive
+      this._handleEl = handle;
+      this._handleBlock = null;
+
+      const place = (e) => {
+        if (self._handleDragging) return;
+        clearTimeout(self._handleHideT);
+        const blk = self._blockUnder(e.clientY);
+        if (!blk) return;
+        self._handleBlock = blk;
+        const b = blk.getBoundingClientRect();
+        const dr = docEl.getBoundingClientRect();
+        handle.style.top = (b.top - dr.top + Math.max(0, Math.min(6, (b.height - 28) / 2))) + "px";
+        handle.hidden = false;
+      };
+      const hideSoon = () => { clearTimeout(self._handleHideT); self._handleHideT = setTimeout(() => { if (!self._handleDragging) handle.hidden = true; }, 220); };
+
+      this._onHandleMove = place;
+      docEl.addEventListener("mousemove", place);
+      docEl.addEventListener("mouseleave", hideSoon);
+      handle.addEventListener("mouseenter", () => clearTimeout(self._handleHideT));
+      handle.addEventListener("click", () => { if (self._handleSuppressClick) { self._handleSuppressClick = false; return; } self._openBlockMenu(); });
+      handle.addEventListener("mousedown", (e) => { e.preventDefault(); self._startBlockDrag(e); });
+    },
+
+    // the top-level block element under a viewport Y, found along the text column
+    _blockUnder(y) {
+      const ed = this._editor;
+      if (!ed) return null;
+      const dom = ed.view.dom;
+      const rect = dom.getBoundingClientRect();
+      const x = rect.left + Math.min(24, rect.width / 2);
+      let el = document.elementFromPoint(x, y);
+      if (!el || !dom.contains(el)) return null;
+      while (el && el.parentElement !== dom) el = el.parentElement;
+      return (el && el.parentElement === dom) ? el : null;
+    },
+
+    _blockPos(blk) {
+      const ed = this._editor;
+      try { const pos = ed.view.posAtDOM(blk, 0); return ed.state.doc.resolve(pos).before(1); }
+      catch (_) { return null; }
+    },
+
+    _startBlockDrag(startEvt) {
+      const self = this;
+      const ed = this._editor;
+      const srcBlk = this._handleBlock;
+      if (!srcBlk) return;
+      const srcPos = this._blockPos(srcBlk);
+      if (srcPos == null) return;
+      this._handleDragging = true;
+      this._closeBlockMenu();
+      document.body.classList.add("ed-dragging");
+      const page = document.getElementById("editorPage");
+      const ind = document.createElement("div");
+      ind.className = "ed-dropline"; ind.hidden = true;
+      page.appendChild(ind);
+      let targetPos = null, targetAfter = false;
+
+      const move = (e) => {
+        const blk = self._blockUnder(e.clientY);
+        if (!blk) { ind.hidden = true; targetPos = null; return; }
+        const b = blk.getBoundingClientRect();
+        const pr = page.getBoundingClientRect();
+        const after = e.clientY > b.top + b.height / 2;
+        ind.hidden = false;
+        ind.style.left = (b.left - pr.left) + "px";
+        ind.style.width = b.width + "px";
+        ind.style.top = ((after ? b.bottom : b.top) - pr.top) + "px";
+        targetPos = self._blockPos(blk); targetAfter = after;
+      };
+      const up = () => {
+        document.removeEventListener("mousemove", move, true);
+        document.removeEventListener("mouseup", up, true);
+        ind.remove();
+        document.body.classList.remove("ed-dragging");
+        self._handleDragging = false; self._handleSuppressClick = true;
+        if (self._handleEl) self._handleEl.hidden = true;
+        self._moveBlock(srcPos, targetPos, targetAfter);
+      };
+      document.addEventListener("mousemove", move, true);
+      document.addEventListener("mouseup", up, true);
+    },
+
+    _moveBlock(srcPos, tgtPos, after) {
+      const ed = this._editor;
+      if (!ed || srcPos == null || tgtPos == null) return;
+      const doc = ed.state.doc;
+      const srcNode = doc.nodeAt(srcPos);
+      const tgtNode = doc.nodeAt(tgtPos);
+      if (!srcNode || !tgtNode) return;
+      const srcEnd = srcPos + srcNode.nodeSize;
+      let insertPos = after ? tgtPos + tgtNode.nodeSize : tgtPos;
+      if (insertPos >= srcPos && insertPos <= srcEnd) return; // no-op on itself
+      const tr = ed.state.tr.delete(srcPos, srcEnd);
+      const mapped = tr.mapping.map(insertPos);
+      tr.insert(mapped, srcNode);
+      ed.view.dispatch(tr);
+      this._dirty = true; this._scheduleSave();
+    },
+
+    _openBlockMenu() {
+      const self = this;
+      const ed = this._editor;
+      const blk = this._handleBlock;
+      if (!ed || !blk) return;
+      const pos = this._blockPos(blk);
+      if (pos == null) return;
+      this._closeBlockMenu();
+      const nodeAt = () => ed.state.doc.nodeAt(pos);
+      const turn = (fn) => { try { fn(); } catch (_) {} self._closeBlockMenu(); };
+      const items = [
+        { ico: "¶", txt: "Text", fn: () => turn(() => ed.chain().focus().setTextSelection(pos + 1).setParagraph().run()) },
+        { ico: "H₁", txt: "Heading 1", fn: () => turn(() => ed.chain().focus().setTextSelection(pos + 1).setNode("heading", { level: 1 }).run()) },
+        { ico: "H₂", txt: "Heading 2", fn: () => turn(() => ed.chain().focus().setTextSelection(pos + 1).setNode("heading", { level: 2 }).run()) },
+        { ico: "H₃", txt: "Heading 3", fn: () => turn(() => ed.chain().focus().setTextSelection(pos + 1).setNode("heading", { level: 3 }).run()) },
+        { divider: true },
+        { ico: "⧉", txt: "Duplicate", fn: () => turn(() => { const n = nodeAt(); if (n) ed.chain().focus().insertContentAt(pos + n.nodeSize, n.toJSON()).run(); }) },
+        { ico: "🗑", txt: "Delete", danger: true, fn: () => turn(() => { const n = nodeAt(); if (n) ed.chain().focus().deleteRange({ from: pos, to: pos + n.nodeSize }).run(); }) },
+      ];
+      const page = document.getElementById("editorPage");
+      const menu = document.createElement("div");
+      menu.className = "ed-blockmenu";
+      menu.innerHTML = items.map((it, i) => it.divider
+        ? '<div class="ed-blockmenu__div"></div>'
+        : `<button class="ed-blockmenu__item ${it.danger ? "is-danger" : ""}" data-i="${i}"><span class="ed-blockmenu__ico">${esc(it.ico)}</span>${esc(it.txt)}</button>`).join("");
+      page.appendChild(menu);
+      this._blockMenuEl = menu;
+      const hr = this._handleEl.getBoundingClientRect();
+      const pr = page.getBoundingClientRect();
+      menu.style.left = (hr.left - pr.left) + "px";
+      menu.style.top = (hr.bottom - pr.top + 4) + "px";
+      menu.querySelectorAll(".ed-blockmenu__item").forEach((b) => {
+        b.addEventListener("mousedown", (e) => { e.preventDefault(); const it = items[parseInt(b.dataset.i, 10)]; it && it.fn && it.fn(); });
+      });
+      setTimeout(() => {
+        this._blockMenuDoc = (e) => { if (this._blockMenuEl && !this._blockMenuEl.contains(e.target)) this._closeBlockMenu(); };
+        document.addEventListener("mousedown", this._blockMenuDoc, true);
+      }, 0);
+    },
+
+    _closeBlockMenu() {
+      if (this._blockMenuDoc) { document.removeEventListener("mousedown", this._blockMenuDoc, true); this._blockMenuDoc = null; }
+      if (this._blockMenuEl) { this._blockMenuEl.remove(); this._blockMenuEl = null; }
     },
   };
 

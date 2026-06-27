@@ -7,6 +7,7 @@ const StatusBar = {
     { key: "mode",     ico: "◆", label: "List Mode" },
     { key: "total",    ico: "▦", label: "Total Videos" },
     { key: "notes",    ico: "✎", label: "Total Notes" },
+    { key: "channels", ico: "📺", label: "Total Channels" },
     { key: "lastAdded",ico: "+", label: "Last Video Added" },
     { key: "lastNote", ico: "✐", label: "Last Note Updated" },
     { key: "duration", ico: "⏱", label: "Total Duration" },
@@ -45,7 +46,7 @@ const StatusBar = {
 
   _compute(key) {
     const l = State.lists[State.activeListId];
-    const vids = Object.values(State.videos).filter((v) => v && v.type !== "note");
+    const vids = Object.values(State.videos).filter((v) => v && v.type !== "note" && v.type !== "channel");
     const allItems = Object.values(State.videos);
     switch (key) {
       case "mode": {
@@ -53,7 +54,8 @@ const StatusBar = {
         return l.syncMode === "sync" ? "Sync" : l.syncMode === "pull" ? "Pull" : "Manual";
       }
       case "total": return String(vids.length);
-      case "notes": return String(allItems.filter((v) => (v.note && v.note.trim()) || v.type === "note").length);
+      case "notes": return String(allItems.filter((v) => (v.note && v.note.trim() && v.type !== "channel") || v.type === "note").length);
+      case "channels": return String(allItems.filter((v) => v.type === "channel").length);
       case "lastAdded": {
         const times = allItems.map((v) => v.timestamp || v.createdAt).filter(Boolean);
         return times.length ? Utils.timeAgo(Math.max(...times)) : "—";

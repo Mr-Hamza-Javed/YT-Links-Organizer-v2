@@ -70,6 +70,7 @@ const App = {
     document.getElementById("createListBtn").addEventListener("click", () => Lists.openCreateModal());
     document.getElementById("addVideoBtn").addEventListener("click", () => Videos.openAddModal());
     document.getElementById("addNoteBtn").addEventListener("click", () => Videos.createNoteAndOpen());
+    document.getElementById("addChannelBtn").addEventListener("click", () => Videos.openAddChannelModal());
   },
   closeDrawer() { document.getElementById("app").classList.remove("drawer-open"); },
 

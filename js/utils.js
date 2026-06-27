@@ -38,6 +38,20 @@ const Utils = {
     return /(?:youtube\.com|youtu\.be)/.test(text) && !!this.parseVideoId(text);
   },
 
+  // ---------- channel link / @handle / id → resolver hint ----------
+  parseChannelInput(input) {
+    if (!input) return null;
+    input = input.trim();
+    let m;
+    if ((m = input.match(/youtube\.com\/channel\/(UC[\w-]{22})/))) return { kind: "id", value: m[1] };
+    if (/^UC[\w-]{22}$/.test(input)) return { kind: "id", value: input };
+    if ((m = input.match(/youtube\.com\/(@[\w.\-]+)/))) return { kind: "handle", value: m[1] };
+    if (/^@[\w.\-]+$/.test(input)) return { kind: "handle", value: input };
+    if ((m = input.match(/youtube\.com\/user\/([\w-]+)/))) return { kind: "user", value: m[1] };
+    if ((m = input.match(/youtube\.com\/c\/([\w%\-]+)/))) return { kind: "search", value: decodeURIComponent(m[1]) };
+    return { kind: "search", value: input };
+  },
+
   // ---------- ISO 8601 duration → H:MM:SS / M:SS ----------
   formatDuration(iso) {
     if (!iso) return "0:00";
