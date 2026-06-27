@@ -548,22 +548,36 @@
 
     // ---- video page header (Notion-style cover + built-in properties) ----
     _videoCoverHtml(item) {
-      const thumb = item.thumbnail || (item.youtubeId ? `https://i.ytimg.com/vi/${item.youtubeId}/hqdefault.jpg` : "");
-      if (!thumb) return "";
-      return `<div class="ed-cover"><img src="${esc(thumb)}" alt="" referrerpolicy="no-referrer" /></div>`;
+      const isChan = item.type === "channel";
+      let img;
+      if (isChan) img = item.banner || "";   // channels: only a real banner makes a good cover
+      else img = item.thumbnail || (item.youtubeId ? `https://i.ytimg.com/vi/${item.youtubeId}/hqdefault.jpg` : "");
+      if (!img) return "";
+      return `<div class="ed-cover ${isChan ? "is-channel" : ""}"><img src="${esc(img)}" alt="" referrerpolicy="no-referrer" /></div>`;
     },
     _videoPropsHtml(item) {
       const rows = [];
       const add = (ico, k, v) => { if (v) rows.push(`<div class="ed-prop"><span class="ed-prop__k">${ico} ${esc(k)}</span><span class="ed-prop__v">${esc(v)}</span></div>`); };
-      add("📺", "Channel", item.channelName || "");
-      add("👁", "Views", item.views ? `${item.views} views` : "");
-      add("⏱", "Duration", item.duration || "");
-      add("🔔", "Subscribers", (item.subscribers && item.subscribers !== "0") ? `${item.subscribers} subs` : "");
-      add("📅", "Published", item.publishedAt ? Utils.formatDate(item.publishedAt) : "");
-      const watch = item.youtubeId ? `<div class="ed-prop"><a class="ed-prop__link" href="https://www.youtube.com/watch?v=${esc(item.youtubeId)}" target="_blank" rel="noopener">▶ Watch on YouTube</a></div>` : "";
+      let link = "";
+      if (item.type === "channel") {
+        const av = item.channelThumbnailUrl || item.thumbnail || "";
+        if (av) rows.push(`<div class="ed-prop"><span class="ed-prop__k">📺 Channel</span><span class="ed-prop__v"><img class="ed-prop__avatar" src="${esc(av)}" referrerpolicy="no-referrer"/> ${esc(item.channelName || item.title || "")}</span></div>`);
+        add("🔔", "Subscribers", (item.subscribers && item.subscribers !== "0") ? `${item.subscribers} subscribers` : "");
+        add("🎬", "Videos", (item.videoCount && item.videoCount !== "0") ? `${item.videoCount} videos` : "");
+        add("📅", "Joined", item.publishedAt ? Utils.formatDate(item.publishedAt) : "");
+        const url = item.channelId ? `https://www.youtube.com/channel/${item.channelId}` : (item.customUrl ? `https://www.youtube.com/${item.customUrl}` : "");
+        if (url) link = `<div class="ed-prop"><a class="ed-prop__link" href="${esc(url)}" target="_blank" rel="noopener">📺 Open on YouTube</a></div>`;
+      } else {
+        add("📺", "Channel", item.channelName || "");
+        add("👁", "Views", item.views ? `${item.views} views` : "");
+        add("⏱", "Duration", item.duration || "");
+        add("🔔", "Subscribers", (item.subscribers && item.subscribers !== "0") ? `${item.subscribers} subs` : "");
+        add("📅", "Published", item.publishedAt ? Utils.formatDate(item.publishedAt) : "");
+        if (item.youtubeId) link = `<div class="ed-prop"><a class="ed-prop__link" href="https://www.youtube.com/watch?v=${esc(item.youtubeId)}" target="_blank" rel="noopener">▶ Watch on YouTube</a></div>`;
+      }
       return `<div class="ed-props" id="edProps">
         <button class="ed-props__toggle" id="edPropsToggle"><span class="ed-props__chev">▾</span> Properties</button>
-        <div class="ed-props__body">${rows.join("")}${watch}</div>
+        <div class="ed-props__body">${rows.join("")}${link}</div>
       </div>`;
     },
 
@@ -926,7 +940,11 @@
 
     _highlightSlash() {
       if (!this._slashEl) return;
-      this._slashEl.querySelectorAll(".ed-slash__item").forEach((b, i) => b.classList.toggle("is-sel", i === this._slashIndex));
+      this._slashEl.querySelectorAll(".ed-slash__item").forEach((b, i) => {
+        const on = i === this._slashIndex;
+        b.classList.toggle("is-sel", on);
+        if (on) b.scrollIntoView({ block: "nearest" });
+      });
     },
 
     _slashKeys(e) {
@@ -1097,31 +1115,34 @@
     /* ---------------- block drag handle (Notion-style ⋮⋮) ---------------- */
     _initHandle() {
       const self = this;
-      const ed = this._editor;
       const page = document.getElementById("editorPage");
-      const scroller = page.querySelector(".ed-scroll");
+      const docEl = page.querySelector(".ed-doc");
+      if (!docEl) return;
       const handle = document.createElement("div");
       handle.className = "ed-handle";
       handle.hidden = true;
-      handle.innerHTML = '<span class="ed-handle__grip" draggable="false">⋮⋮</span>';
-      page.appendChild(handle);
+      handle.innerHTML = '<span class="ed-handle__grip" draggable="false"><svg viewBox="0 0 24 24" width="16" height="16"><circle cx="9" cy="5" r="1.7"/><circle cx="9" cy="12" r="1.7"/><circle cx="9" cy="19" r="1.7"/><circle cx="15" cy="5" r="1.7"/><circle cx="15" cy="12" r="1.7"/><circle cx="15" cy="19" r="1.7"/></svg></span>';
+      docEl.appendChild(handle);          // child of .ed-doc → hovering it keeps it alive
       this._handleEl = handle;
       this._handleBlock = null;
 
-      this._onHandleMove = (e) => {
+      const place = (e) => {
         if (self._handleDragging) return;
-        if (handle.contains(e.target)) return;
+        clearTimeout(self._handleHideT);
         const blk = self._blockUnder(e.clientY);
-        if (!blk) { handle.hidden = true; self._handleBlock = null; return; }
+        if (!blk) return;
         self._handleBlock = blk;
         const b = blk.getBoundingClientRect();
-        const pr = page.getBoundingClientRect();
-        handle.style.left = (b.left - pr.left - 28) + "px";
-        handle.style.top = (b.top - pr.top + Math.max(2, Math.min(7, (b.height - 22) / 2))) + "px";
+        const dr = docEl.getBoundingClientRect();
+        handle.style.top = (b.top - dr.top + Math.max(0, Math.min(6, (b.height - 28) / 2))) + "px";
         handle.hidden = false;
       };
-      scroller.addEventListener("mousemove", this._onHandleMove);
-      scroller.addEventListener("mouseleave", () => { if (!self._handleDragging) handle.hidden = true; });
+      const hideSoon = () => { clearTimeout(self._handleHideT); self._handleHideT = setTimeout(() => { if (!self._handleDragging) handle.hidden = true; }, 220); };
+
+      this._onHandleMove = place;
+      docEl.addEventListener("mousemove", place);
+      docEl.addEventListener("mouseleave", hideSoon);
+      handle.addEventListener("mouseenter", () => clearTimeout(self._handleHideT));
       handle.addEventListener("click", () => { if (self._handleSuppressClick) { self._handleSuppressClick = false; return; } self._openBlockMenu(); });
       handle.addEventListener("mousedown", (e) => { e.preventDefault(); self._startBlockDrag(e); });
     },

@@ -41,7 +41,7 @@
 
 /* ---------- scroller + document column ---------- */
 .ed-scroll { flex: 1; overflow-y: auto; min-height: 0; }
-.ed-doc { max-width: 760px; margin: 0 auto; padding: 40px 28px 45vh; }
+.ed-doc { max-width: 760px; margin: 0 auto; padding: 40px 28px 45vh; position: relative; }
 
 /* ---------- title ---------- */
 .ed-title {
@@ -133,7 +133,9 @@
 .ed-props__body { display: flex; flex-direction: column; gap: 2px; }
 .ed-prop { display: flex; gap: 12px; font-size: 13.5px; padding: 3px 0; }
 .ed-prop__k { width: 150px; flex-shrink: 0; color: var(--text-3); display: flex; gap: 7px; }
-.ed-prop__v { color: var(--text); min-width: 0; }
+.ed-prop__v { color: var(--text); min-width: 0; display: flex; align-items: center; gap: 7px; }
+.ed-prop__avatar { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; flex-shrink: 0; background: var(--bg-sunken); }
+.ed-cover.is-channel { height: 22vh; min-height: 130px; }
 .ed-prop__link { color: var(--accent); text-decoration: none; font-weight: 550; }
 .ed-prop__link:hover { text-decoration: underline; }
 
@@ -274,13 +276,14 @@
 
 /* ---------- block drag handle ---------- */
 .ed-handle {
-  position: absolute; z-index: 25; display: flex; align-items: center; justify-content: center;
-  width: 22px; height: 24px; border-radius: 5px; color: var(--text-3);
-  cursor: grab; user-select: none;
+  position: absolute; left: 0; z-index: 25; display: grid; place-items: center;
+  width: 26px; height: 28px; border-radius: 6px; color: var(--text-3);
+  cursor: grab; user-select: none; transition: background var(--speed), color var(--speed);
 }
-.ed-handle:hover { background: var(--bg-hover); color: var(--text-2); }
+.ed-handle:hover { background: var(--bg-hover); color: var(--text); }
 .ed-handle:active { cursor: grabbing; }
-.ed-handle__grip { font-size: 15px; line-height: 1; pointer-events: none; letter-spacing: -2px; }
+.ed-handle__grip { pointer-events: none; display: grid; place-items: center; }
+.ed-handle__grip svg { fill: currentColor; }
 body.ed-dragging, body.ed-dragging * { cursor: grabbing !important; }
 .ed-dropline { position: absolute; z-index: 26; height: 3px; border-radius: 2px; background: var(--accent); pointer-events: none; }
 
@@ -301,6 +304,7 @@ body.ed-dragging, body.ed-dragging * { cursor: grabbing !important; }
 
 /* ---------- mobile ---------- */
 @media (max-width: 760px) {
+  .ed-handle { display: none; }
   .ed-doc { padding: 24px 16px 45vh; }
   .ed-title { font-size: 30px; }
   .ed-crumb { max-width: 30vw; }

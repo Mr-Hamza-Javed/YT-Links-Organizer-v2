@@ -365,17 +365,23 @@ const Videos = {
   channelCardHtml(v) {
     const avatar = v.channelThumbnailUrl || v.thumbnail || "";
     const name = v.title || v.channelName || "Channel";
+    const hasNote = !!(v.note && v.note.trim());
     const stats = [
       v.subscribers && v.subscribers !== "0" ? `${v.subscribers} subscribers` : null,
       v.videoCount && v.videoCount !== "0" ? `${v.videoCount} videos` : null,
     ].filter(Boolean).join(" • ");
     return `
-      <div class="vcard vcard--channel" data-id="${v._key || v.id}" data-channel-item="1"
-           data-title="${Utils.escapeHtml(name.toLowerCase())}" data-channel="${Utils.escapeHtml((v.channelName || "").toLowerCase())}">
+      <div class="vcard vcard--channel ${hasNote ? "has-note" : ""}" data-id="${v._key || v.id}" data-channel-item="1"
+           data-title="${Utils.escapeHtml(name.toLowerCase())}" data-channel="${Utils.escapeHtml((v.channelName || "").toLowerCase())}" data-body="${Utils.escapeHtml((v.note || "").toLowerCase())}">
         <div class="vchan__banner" data-act="open" ${v.banner ? `style="background-image:url('${Utils.escapeHtml(v.banner)}')"` : ""}>
-          <span class="vchan__tag">📺 Channel</span>
+          <span class="vchan__tag"><svg viewBox="0 0 24 24" width="11" height="11"><path fill="currentColor" d="M3 7h18v11H3zM3 7l9 5 9-5"/></svg> Channel</span>
         </div>
         <div class="vcard__actions">
+          <button class="vcard__abtn vcard__note-btn ${hasNote ? "has-note" : ""}" data-act="note" title="${hasNote ? "Open note" : "Add note"}">
+            ${hasNote
+              ? '<svg viewBox="0 0 24 24" width="15" height="15"><path fill="currentColor" d="M4 4h16v12H7l-3 3z"/></svg>'
+              : '<svg viewBox="0 0 24 24" width="15" height="15"><path fill="none" stroke="currentColor" stroke-width="2" d="M4 4h16v12H7l-3 3z"/></svg>'}
+          </button>
           <button class="vcard__abtn" data-act="menu" title="More">
             <svg viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="5" r="1.7" fill="currentColor"/><circle cx="12" cy="12" r="1.7" fill="currentColor"/><circle cx="12" cy="19" r="1.7" fill="currentColor"/></svg>
           </button>
@@ -399,14 +405,16 @@ const Videos = {
       const isNote = card.dataset.note === "1";
       const isChannel = card.dataset.channelItem === "1";
 
-      // channel cards: open the channel on YouTube; only a 3-dot menu (no note btn)
+      // channel cards: open the editor (notes allowed); "Open Channel" is in the menu
       if (isChannel) {
-        const open = () => this.openChannelOnYouTube(vid);
+        const open = () => Notes.openInline(vid);
         card.querySelectorAll('[data-act="open"]').forEach((el) => {
           el.addEventListener("dblclick", open);
           let lastTap = 0;
           el.addEventListener("touchend", () => { const now = Date.now(); if (now - lastTap < 320) open(); lastTap = now; });
         });
+        const noteBtn = card.querySelector('[data-act="note"]');
+        if (noteBtn) noteBtn.addEventListener("click", (e) => { e.stopPropagation(); Notes.openInline(vid); });
         card.querySelector('[data-act="menu"]').addEventListener("click", (e) => { e.stopPropagation(); this.openCardMenu(e.currentTarget, vid); });
         return;
       }
@@ -462,6 +470,7 @@ const Videos = {
     if (!v) return;
     if (v.type === "channel") {
       const items = [
+        { key: "note", ico: "📝", text: "Open Note", onClick: () => Notes.openInline(vid) },
         { key: "open", ico: "📺", text: "Open Channel", onClick: () => this.openChannelOnYouTube(vid) },
         { key: "refresh", ico: "🔄", text: "Refresh", onClick: () => this.refreshChannel(vid) },
         { key: "move", ico: "📂", text: "Move to list…", onClick: () => this.openMoveMenu(btn, vid) },
