@@ -100,18 +100,15 @@
         <input id="searchInput" type="text" placeholder="Search videos…" autocomplete="off" />
         <button id="searchClear" class="search-clear" hidden aria-label="Clear search">×</button>
       </div>
-      <button id="addNoteBtn" class="btn btn--ghost" title="Add a note (no video)">
-        <svg viewBox="0 0 24 24" width="16" height="16"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M5 4h11l3 3v13H5z"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M8.5 10h7M8.5 14h5"/></svg>
-        <span class="btn__label">Note</span>
-      </button>
-      <button id="addChannelBtn" class="btn btn--ghost" title="Add a YouTube channel">
-        <svg viewBox="0 0 24 24" width="16" height="16"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3 7h18v11H3zM3 7l9 5 9-5"/></svg>
-        <span class="btn__label">Channel</span>
-      </button>
-      <button id="addVideoBtn" class="btn btn--primary">
-        <svg viewBox="0 0 24 24" width="16" height="16"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-        <span class="btn__label">Add Video</span>
-      </button>
+      <div class="split-add" id="splitAdd">
+        <button id="addVideoBtn" class="btn btn--primary split-add__main" title="Add a video">
+          <svg viewBox="0 0 24 24" width="16" height="16"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <span class="btn__label">Add Video</span>
+        </button>
+        <button id="addMoreBtn" class="btn btn--primary split-add__caret" title="More: add note or channel" aria-haspopup="true" aria-expanded="false" aria-label="More add options">
+          <svg viewBox="0 0 24 24" width="14" height="14"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
     </header>
 
     <section class="grid-wrap">

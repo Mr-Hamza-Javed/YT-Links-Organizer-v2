@@ -69,8 +69,21 @@ const App = {
     document.getElementById("mobileBackdrop").addEventListener("click", () => this.closeDrawer());
     document.getElementById("createListBtn").addEventListener("click", () => Lists.openCreateModal());
     document.getElementById("addVideoBtn").addEventListener("click", () => Videos.openAddModal());
-    document.getElementById("addNoteBtn").addEventListener("click", () => Videos.createNoteAndOpen());
-    document.getElementById("addChannelBtn").addEventListener("click", () => Videos.openAddChannelModal());
+    // caret reveals the secondary "add" actions (note / channel) in a dropdown
+    const addMoreBtn = document.getElementById("addMoreBtn");
+    addMoreBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      UI.floatingMenu(addMoreBtn, [
+        { key: "note", ico: "📝", text: "Add Note", onClick: () => Videos.createNoteAndOpen() },
+        { key: "channel", ico: "📺", text: "Add Channel", onClick: () => Videos.openAddChannelModal() },
+      ], { align: "right" });
+      addMoreBtn.setAttribute("aria-expanded", "true");
+      // reset the caret once the menu is dismissed (item click or outside click)
+      setTimeout(() => {
+        const reset = () => { addMoreBtn.setAttribute("aria-expanded", "false"); document.removeEventListener("mousedown", reset); };
+        document.addEventListener("mousedown", reset);
+      }, 0);
+    });
   },
   closeDrawer() { document.getElementById("app").classList.remove("drawer-open"); },
 
