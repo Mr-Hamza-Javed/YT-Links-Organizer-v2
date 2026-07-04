@@ -366,15 +366,26 @@ const Videos = {
     const avatar = v.channelThumbnailUrl || v.thumbnail || "";
     const name = v.title || v.channelName || "Channel";
     const hasNote = !!(v.note && v.note.trim());
-    const stats = [
-      v.subscribers && v.subscribers !== "0" ? `${v.subscribers} subscribers` : null,
-      v.videoCount && v.videoCount !== "0" ? `${v.videoCount} videos` : null,
-    ].filter(Boolean).join(" • ");
+    let handle = (v.customUrl || "").trim();
+    if (handle && handle[0] !== "@") handle = "@" + handle;
+    const stat = (n, label) =>
+      `<div class="vchan__stat"><span class="vchan__stat-n">${Utils.escapeHtml(n)}</span><span class="vchan__stat-l">${label}</span></div>`;
+    const statCells = [];
+    if (v.subscribers && v.subscribers !== "0") statCells.push(stat(v.subscribers, "Subscribers"));
+    if (v.videoCount && v.videoCount !== "0") statCells.push(stat(v.videoCount, "Videos"));
+    const statsHtml = statCells.length ? `<div class="vchan__stats">${statCells.join("")}</div>` : "";
     return `
       <div class="vcard vcard--channel ${hasNote ? "has-note" : ""}" data-id="${v._key || v.id}" data-channel-item="1"
            data-title="${Utils.escapeHtml(name.toLowerCase())}" data-channel="${Utils.escapeHtml((v.channelName || "").toLowerCase())}" data-body="${Utils.escapeHtml((v.note || "").toLowerCase())}">
         <div class="vchan__banner" data-act="open" ${v.banner ? `style="background-image:url('${Utils.escapeHtml(v.banner)}')"` : ""}>
-          <span class="vchan__tag"><svg viewBox="0 0 24 24" width="11" height="11"><path fill="currentColor" d="M3 7h18v11H3zM3 7l9 5 9-5"/></svg> Channel</span>
+          <span class="vchan__tag"><svg viewBox="0 0 24 24" width="12" height="12"><path fill="currentColor" d="M21.6 7.2a2.7 2.7 0 0 0-1.9-1.9C18 4.8 12 4.8 12 4.8s-6 0-7.7.5A2.7 2.7 0 0 0 2.4 7.2 28 28 0 0 0 2 12a28 28 0 0 0 .4 4.8 2.7 2.7 0 0 0 1.9 1.9c1.7.5 7.7.5 7.7.5s6 0 7.7-.5a2.7 2.7 0 0 0 1.9-1.9A28 28 0 0 0 22 12a28 28 0 0 0-.4-4.8ZM10 15.2V8.8l5.2 3.2Z"/></svg> Channel</span>
+          <div class="vchan__hero">
+            ${avatar
+              ? `<img class="vchan__avatar" src="${Utils.escapeHtml(avatar)}" alt="" referrerpolicy="no-referrer" />`
+              : `<div class="vchan__avatar is-ph">${Utils.escapeHtml(name.charAt(0).toUpperCase())}</div>`}
+            <div class="vchan__name">${Utils.escapeHtml(name)}</div>
+            ${handle ? `<div class="vchan__handle">${Utils.escapeHtml(handle)}</div>` : ""}
+          </div>
         </div>
         <div class="vcard__actions">
           <button class="vcard__abtn vcard__note-btn ${hasNote ? "has-note" : ""}" data-act="note" title="${hasNote ? "Open note" : "Add note"}">
@@ -386,15 +397,7 @@ const Videos = {
             <svg viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="5" r="1.7" fill="currentColor"/><circle cx="12" cy="12" r="1.7" fill="currentColor"/><circle cx="12" cy="19" r="1.7" fill="currentColor"/></svg>
           </button>
         </div>
-        <div class="vchan__body" data-act="open">
-          ${avatar
-            ? `<img class="vchan__avatar" src="${Utils.escapeHtml(avatar)}" alt="" referrerpolicy="no-referrer" />`
-            : `<div class="vchan__avatar is-ph">${Utils.escapeHtml(name.charAt(0).toUpperCase())}</div>`}
-          <div class="vchan__meta">
-            <div class="vchan__name">${Utils.escapeHtml(name)}</div>
-            <div class="vchan__stats">${Utils.escapeHtml(stats)}</div>
-          </div>
-        </div>
+        ${statsHtml ? `<div class="vchan__body" data-act="open">${statsHtml}</div>` : ""}
       </div>`;
   },
 
