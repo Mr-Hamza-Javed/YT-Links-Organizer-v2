@@ -311,3 +311,40 @@ body.ed-dragging, body.ed-dragging * { cursor: grabbing !important; }
   .ed-btn span { display: none; }
   .ed-bubble__row { flex-wrap: wrap; max-width: 92vw; }
 }
+
+/* =========================================================
+   ANIMATION LAYER — editor (added)
+   ========================================================= */
+@keyframes ed-in     { from { opacity:0; transform:scale(.975);} to { opacity:1; transform:none; } }
+@keyframes ed-rise   { from { opacity:0; transform:translateY(12px);} to { opacity:1; transform:none; } }
+@keyframes ed-pop    { from { opacity:0; transform:translateY(6px) scale(.97);} to { opacity:1; transform:none; } }
+
+/* page enters with a soft scale/fade */
+.editor-page { animation: ed-in .3s cubic-bezier(.2,.8,.2,1); }
+
+/* one-shot reveal of the document header (cover → title → props) on open.
+   Only these structural blocks animate — the prose body is left untouched so
+   typing never re-triggers motion. */
+.ed-cover  { animation: ed-rise .45s cubic-bezier(.2,.8,.2,1) both; }
+.ed-title  { animation: ed-rise .45s cubic-bezier(.2,.8,.2,1) .06s both; }
+.ed-props  { animation: ed-rise .45s cubic-bezier(.2,.8,.2,1) .12s both; }
+
+/* floating menus pop in */
+.ed-slash, .ed-bubble, .ed-blockmenu, .ed-tabletb { animation: ed-pop .16s cubic-bezier(.2,.8,.2,1); }
+
+/* toolbar / handle / card micro-interactions */
+.ed-icbtn:active, .ed-btn:active { transform: scale(.94); }
+.ed-icbtn, .ed-btn { transition: background var(--speed), color var(--speed), border-color var(--speed), transform var(--speed); }
+.ed-slash__item, .ed-blockmenu__item { transition: background var(--speed), padding-left var(--speed); }
+.ed-slash__item:hover, .ed-blockmenu__item:hover { padding-left: 13px; }
+.ed-bb { transition: background var(--speed), transform var(--speed); }
+.ed-bb:active { transform: scale(.9); }
+.ed-vcard { transition: border-color var(--speed), box-shadow var(--speed), transform var(--speed); }
+.ed-vcard:hover { transform: translateY(-2px); }
+.ed-vcard__thumb img { transition: transform .5s cubic-bezier(.2,.8,.2,1); }
+.ed-vcard:hover .ed-vcard__thumb img { transform: scale(1.04); }
+
+@media (prefers-reduced-motion: reduce) {
+  .editor-page, .ed-cover, .ed-title, .ed-props,
+  .ed-slash, .ed-bubble, .ed-blockmenu, .ed-tabletb { animation-duration: .01ms !important; }
+}

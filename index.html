@@ -46,10 +46,19 @@
           <svg viewBox="0 0 24 24" width="18" height="18"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 008 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H2a2 2 0 110-4h.09A1.65 1.65 0 003.6 8a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H8a1.65 1.65 0 001-1.51V2a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V8a1.65 1.65 0 001.51 1H22a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z" fill="none" stroke="currentColor" stroke-width="2"/></svg>
         </button>
         <div id="settingsMenu" class="popover settings-menu" hidden>
-          <button class="popover__item" data-action="theme">
-            <span class="popover__ico" id="themeIco">🌙</span>
-            <span>Theme: <b id="themeLabel">Dark</b></span>
-          </button>
+          <div class="popover__submenu-label">Appearance</div>
+          <div class="mode-seg" id="modeSeg">
+            <button data-mode="light" title="Light">☀️ Light</button>
+            <button data-mode="dark" title="Dark">🌙 Dark</button>
+            <button data-mode="system" title="Follow system">🖥️ System</button>
+          </div>
+          <div class="popover__submenu-label">Theme</div>
+          <div class="theme-picker" id="themePicker"></div>
+          <div class="tint-row">
+            <span class="tint-row__label"><b>Background tint</b><span>Tint surfaces with the theme color</span></span>
+            <button class="tgl" id="tintToggle" role="switch" aria-label="Background tint" aria-checked="false"></button>
+          </div>
+          <div class="popover__divider"></div>
           <button class="popover__item" data-action="archived"><span class="popover__ico">🗄️</span><span>Archived Lists</span></button>
           <button class="popover__item" data-action="templates"><span class="popover__ico">⚙️</span><span>Manage Templates</span></button>
           <div class="popover__divider"></div>
@@ -223,6 +232,7 @@
 <script src="js/statusbar.js"></script>
 <script src="js/editor.js"></script>
 <script src="js/boot.js"></script>
+<script src="js/animations.js"></script>
 
 <!-- TipTap (Notion-style editor engine) loaded as an ES module from a CDN.
      No build step: it resolves a single shared @tiptap/pm, then exposes the

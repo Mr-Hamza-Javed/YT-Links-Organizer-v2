@@ -732,3 +732,529 @@ input[type="range"] { accent-color: var(--accent); }
   .view-bar { margin: 0 -14px 12px; padding: 14px 14px 12px; }
   .modal { width: 100vw; }
 }
+
+/* =========================================================
+   ANIMATION LAYER  (added — micro-interactions & motion)
+   ========================================================= */
+:root {
+  --spring: cubic-bezier(.2, .9, .25, 1.05);
+  --ease-out: cubic-bezier(.2, .8, .2, 1);
+}
+
+/* smooth theme changes */
+body { transition: background .45s var(--ease-out), color .45s var(--ease-out); }
+
+/* ---- keyframes ---- */
+@keyframes a-cardIn   { from { opacity:0; transform:translateY(16px) scale(.97);} to { opacity:1; transform:none; } }
+@keyframes a-cardOut  { to   { opacity:0; transform:scale(.9); filter:blur(2px); } }
+@keyframes a-listIn   { from { opacity:0; transform:translateX(-10px); } to { opacity:1; transform:none; } }
+@keyframes a-riseIn   { from { opacity:0; transform:translateY(10px); }  to { opacity:1; transform:none; } }
+@keyframes a-floatArt { 0%,100%{ transform:translateY(0) rotate(0);} 50%{ transform:translateY(-9px) rotate(-3deg);} }
+@keyframes a-ripple   { to { transform:scale(2.4); opacity:0; } }
+@keyframes a-pulseDot { 0%{box-shadow:0 0 0 0 var(--accent-soft);} 70%{box-shadow:0 0 0 7px transparent;} 100%{box-shadow:0 0 0 0 transparent;} }
+@keyframes a-markPulse{ 0%,100%{ transform:scale(1);} 45%{ transform:scale(1.12);} }
+@keyframes a-pop      { 0%{transform:scale(.4);opacity:0;} 60%{transform:scale(1.12);} 100%{transform:scale(1);opacity:1;} }
+@keyframes a-chipIn   { from{opacity:0;} to{opacity:1;} }
+
+/* ---- app / brand ---- */
+.app { animation: a-riseIn .4s var(--ease-out) both; }
+.brand__mark { animation: a-markPulse 4.5s var(--ease-out) infinite; }
+
+/* ---- sidebar list items: active accent bar + hover ---- */
+/* entrance stagger only runs once (first paint) — gated behind .a-stagger,
+   added by animations.js on the first render, so switching lists does NOT
+   re-animate the whole sidebar. */
+.list-container.a-stagger > .list-item { animation: a-listIn .38s var(--ease-out) both; }
+.list-container.a-stagger > .list-item:nth-child(1){animation-delay:.03s}
+.list-container.a-stagger > .list-item:nth-child(2){animation-delay:.07s}
+.list-container.a-stagger > .list-item:nth-child(3){animation-delay:.11s}
+.list-container.a-stagger > .list-item:nth-child(4){animation-delay:.15s}
+.list-container.a-stagger > .list-item:nth-child(5){animation-delay:.19s}
+.list-container.a-stagger > .list-item:nth-child(6){animation-delay:.23s}
+.list-container.a-stagger > .list-item:nth-child(7){animation-delay:.27s}
+.list-container.a-stagger > .list-item:nth-child(n+8){animation-delay:.30s}
+.list-item:hover { transform: translateX(2px); }
+.list-item::before {
+  content:""; position:absolute; left:0; top:8px; bottom:8px; width:3px; border-radius:2px;
+  background:var(--accent); transform:scaleX(0); transform-origin:left;
+  transition:transform .22s var(--spring);
+}
+.list-item.is-active::before { transform:scaleX(1); }
+.list-item__emoji { transition: transform var(--speed); }
+.list-item:hover .list-item__emoji { transform: scale(1.16) rotate(-6deg); }
+.create-list-btn:active { transform: scale(.97); }
+.create-list-btn svg { transition: transform var(--speed); }
+.create-list-btn:hover svg { transform: rotate(90deg); }
+.user-chip { transition: transform var(--speed); }
+.user-chip:hover { transform: scale(1.08); }
+
+/* ---- buttons: press + ripple ---- */
+.btn, .icon-btn, .vb-chip, .create-list-btn, .modal-close, .signin-btn { position: relative; overflow: hidden; }
+.btn:active, .signin-btn:active { transform: scale(.96); }
+.icon-btn:active { transform: scale(.9); }
+.vb-chip:active { transform: scale(.95); }
+.btn--primary:hover { box-shadow: 0 4px 16px var(--accent-soft); }
+.a-ripple {
+  position:absolute; border-radius:50%; background:rgba(255,255,255,.5);
+  transform:scale(0); pointer-events:none; animation:a-ripple .6s var(--ease-out) forwards;
+}
+.a-ripple--dark { background: color-mix(in srgb, var(--text-3) 55%, transparent); }
+.split-add__caret[aria-expanded="true"] svg { transform: rotate(180deg); }
+
+/* ---- topbar: search focus glow + active-list pop ---- */
+.topbar__search:focus-within { box-shadow: 0 0 0 3px var(--accent-soft); }
+.topbar__emoji.a-pop, .badge.a-pop { animation: a-pop .4s var(--spring); }
+
+/* ---- video grid ---- */
+/* Card stagger runs ONCE on the first grid paint (gated behind .a-stagger).
+   On later renders (switching lists, data updates) animations.js adds .a-fade
+   instead, so the grid gently fades as a whole rather than re-cascading every
+   card each time you change lists. */
+@keyframes a-gridFade { from { opacity:.35; } to { opacity:1; } }
+.video-grid.a-fade { animation: a-gridFade .3s var(--ease-out); }
+.video-grid.a-stagger > .vcard { animation: a-cardIn .5s var(--ease-out) both; will-change: transform; }
+.video-grid.a-stagger > .vcard:nth-child(1){animation-delay:.02s}
+.video-grid.a-stagger > .vcard:nth-child(2){animation-delay:.06s}
+.video-grid.a-stagger > .vcard:nth-child(3){animation-delay:.10s}
+.video-grid.a-stagger > .vcard:nth-child(4){animation-delay:.14s}
+.video-grid.a-stagger > .vcard:nth-child(5){animation-delay:.18s}
+.video-grid.a-stagger > .vcard:nth-child(6){animation-delay:.22s}
+.video-grid.a-stagger > .vcard:nth-child(7){animation-delay:.26s}
+.video-grid.a-stagger > .vcard:nth-child(8){animation-delay:.30s}
+.video-grid.a-stagger > .vcard:nth-child(n+9){animation-delay:.34s}
+.vcard { transition: border-color .2s, box-shadow .25s, transform .25s var(--ease-out); }
+.vcard:hover { transform: translateY(-5px); box-shadow: 0 12px 30px rgba(0,0,0,.22); }
+.vcard.a-removing { animation: a-cardOut .32s var(--ease-out) forwards; pointer-events:none; }
+.vcard__thumb img, .vchan__avatar { transition: transform .5s var(--ease-out); }
+.vcard:hover .vcard__thumb img { transform: scale(1.07); }
+.vcard--channel:hover .vchan__avatar { transform: scale(1.06); }
+.vcard__actions { transform: translateY(-4px); transition: opacity .22s, transform .22s var(--ease-out); }
+.vcard:hover .vcard__actions, .vcard.has-note .vcard__actions { transform: none; }
+.vcard__abtn { transition: background var(--speed), transform var(--speed); }
+.vcard__abtn:hover { transform: scale(1.12); }
+.vcard__abtn.has-note { animation: a-pulseDot 2.6s ease-out infinite; }
+
+/* ---- view bar chips ---- */
+.vb-chip.is-active { animation: a-pop .35s var(--spring); }
+
+/* ---- empty state ---- */
+.grid-empty { animation: a-riseIn .5s var(--ease-out) both; }
+.grid-empty__art { display:inline-block; animation: a-floatArt 3.6s ease-in-out infinite; }
+.grid-empty__hint { animation: a-riseIn .5s var(--ease-out) .12s both; }
+
+/* ---- status bar: chip fade-in stagger + gear spin + hover ---- */
+.status-chip { animation: a-chipIn .5s ease both; transition: background var(--speed); }
+.status-chip:hover { background: rgba(255,255,255,.12); }
+.status-chip:nth-child(1){animation-delay:.04s}.status-chip:nth-child(2){animation-delay:.10s}
+.status-chip:nth-child(3){animation-delay:.16s}.status-chip:nth-child(4){animation-delay:.22s}
+.status-chip:nth-child(5){animation-delay:.28s}.status-chip:nth-child(6){animation-delay:.34s}
+.status-chip:nth-child(n+7){animation-delay:.40s}
+.statusbar__gear { transition: opacity var(--speed), transform .35s var(--ease-out); }
+.statusbar__gear:hover { transform: rotate(60deg); }
+
+/* ---- popover / drawer / toast easing bumps ---- */
+.popover { transform-origin: bottom left; }
+.modal { animation: slideIn .28s var(--spring); }
+.modal-overlay { backdrop-filter: blur(2px); }
+.modal-close { transition: background var(--speed), color var(--speed), transform var(--speed); }
+.modal-close:hover { transform: rotate(90deg); }
+.modal__body .field { animation: a-riseIn .4s var(--ease-out) both; }
+.modal__body .field:nth-child(2){animation-delay:.05s}
+.modal__body .field:nth-child(3){animation-delay:.10s}
+.toast { animation: toastIn .28s var(--spring); }
+
+/* ---- welcome: feature stagger + hover lift ---- */
+.welcome__mark { animation: a-markPulse 4s var(--ease-out) infinite; }
+.welcome__feature { animation: a-riseIn .5s var(--ease-out) both; }
+.welcome__feature:nth-child(1){animation-delay:.24s}.welcome__feature:nth-child(2){animation-delay:.31s}
+.welcome__feature:nth-child(3){animation-delay:.38s}.welcome__feature:nth-child(4){animation-delay:.45s}
+.welcome__feature-ico { transition: transform var(--speed); }
+.welcome__feature:hover .welcome__feature-ico { transform: translateY(-3px) scale(1.06); }
+.gbtn:active { transform: scale(.98); }
+
+/* ---- respect reduced-motion ---- */
+@media (prefers-reduced-motion: reduce) {
+  *:not(.spinner):not(.gbtn__spinner) {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .06s !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* =========================================================
+   CENTERED POPUP MODALS  (replaces the right-edge drawer)
+   The JS markup is unchanged — only the presentation switches from a
+   full-height side drawer to a centered, rounded dialog that scales in.
+   ========================================================= */
+@keyframes a-modalIn  { from { opacity:0; transform: translateY(14px) scale(.955); } to { opacity:1; transform:none; } }
+@keyframes a-modalOut { to  { opacity:0; transform: translateY(8px) scale(.97); } }
+
+.modal-overlay {
+  justify-content: center;
+  align-items: center;
+  padding: 28px;
+}
+.modal-overlay.is-closing { animation: fadeIn .18s ease reverse forwards; }
+
+.modal {
+  width: 480px;
+  max-width: 96vw;
+  height: auto;
+  max-height: 88vh;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 30px 80px rgba(0,0,0,.5), 0 8px 24px rgba(0,0,0,.28);
+  animation: a-modalIn .28s var(--spring);
+  transform-origin: center center;
+}
+.modal.is-closing { animation: a-modalOut .18s var(--ease-out) forwards; }
+.modal--wide { width: 880px; }
+.modal--full { width: min(1120px, 96vw); height: 88vh; }
+
+/* regular dialogs hug their content (no forced growth / phantom scrollbar);
+   wide & full keep a filling, scrollable body. */
+.modal:not(.modal--full):not(.modal--wide) .modal__body { flex: 0 1 auto; }
+.modal:not(.modal--full):not(.modal--wide) .modal__body .field:last-child { margin-bottom: 0; }
+
+/* head/body/foot: the head gets a subtle sunken tint so the dialog reads as a
+   real card; body scrolls within max-height. */
+.modal__head { background: var(--bg-elevated); }
+.modal__body { background: var(--bg); }
+.modal__foot { background: var(--bg-elevated); }
+
+/* small screens: near-full-width sheet, still centered */
+@media (max-width: 560px) {
+  .modal-overlay { padding: 12px; align-items: flex-end; }
+  .modal, .modal--wide, .modal--full {
+    width: 100%; max-width: 100%; height: auto; max-height: 92vh;
+    border-radius: 18px;
+  }
+  @keyframes a-modalIn { from { opacity:0; transform: translateY(24px); } to { opacity:1; transform:none; } }
+}
+
+/* =========================================================
+   THEMES  — status bar gets its own tokens so each theme can keep it
+   calm (a quiet footer) instead of a bright accent band.
+   ========================================================= */
+:root {
+  --statusbar-bg: var(--accent);
+  --statusbar-text: var(--accent-text);
+  --statusbar-border: rgba(255,255,255,.16);
+}
+
+/* status bar now reads its own tokens */
+.statusbar { background: var(--statusbar-bg); color: var(--statusbar-text); }
+.status-chip { border-right: 1px solid var(--statusbar-border); }
+.status-chip:hover { background: color-mix(in srgb, var(--statusbar-text) 10%, transparent); }
+.statusbar__gear { color: var(--statusbar-text); }
+.statusbar__gear:hover { background: color-mix(in srgb, var(--statusbar-text) 12%, transparent); }
+
+/* --- classic themes keep the bright accent status bar (unchanged look) --- */
+[data-theme="dark"]  { --statusbar-bg: var(--accent); --statusbar-text: var(--accent-text); --statusbar-border: rgba(255,255,255,.16); }
+[data-theme="light"] { --statusbar-bg: var(--accent); --statusbar-text: var(--accent-text); --statusbar-border: rgba(255,255,255,.22); }
+
+/* --- Midnight (deep indigo, calm bar) --- */
+[data-theme="midnight"] {
+  --bg:oklch(.19 .03 265); --bg-sunken:oklch(.16 .03 265); --bg-elevated:oklch(.23 .035 265);
+  --bg-hover:oklch(.28 .04 265); --bg-active:oklch(.33 .05 265);
+  --border:oklch(.34 .04 265); --border-soft:oklch(.27 .035 265);
+  --text:oklch(.95 .01 265); --text-2:oklch(.74 .03 265); --text-3:oklch(.58 .03 265);
+  --accent:oklch(.66 .16 265); --accent-text:oklch(.99 0 0); --accent-soft:oklch(.55 .14 265/.24);
+  --warn:oklch(.75 .14 75); --ok:oklch(.75 .13 160); --drop:oklch(.66 .16 265/.9);
+  --statusbar-bg:oklch(.23 .035 265); --statusbar-text:oklch(.80 .03 265); --statusbar-border:oklch(.31 .04 265);
+  color-scheme:dark;
+}
+/* --- Graphite (neutral, teal accent) --- */
+[data-theme="graphite"] {
+  --bg:oklch(.20 0 0); --bg-sunken:oklch(.16 0 0); --bg-elevated:oklch(.24 0 0);
+  --bg-hover:oklch(.29 0 0); --bg-active:oklch(.34 0 0);
+  --border:oklch(.36 0 0); --border-soft:oklch(.28 0 0);
+  --text:oklch(.96 0 0); --text-2:oklch(.74 0 0); --text-3:oklch(.58 0 0);
+  --accent:oklch(.72 .12 190); --accent-text:oklch(.16 0 0); --accent-soft:oklch(.72 .12 190/.20);
+  --warn:oklch(.75 .14 75); --ok:oklch(.75 .13 160); --drop:oklch(.72 .12 190/.9);
+  --statusbar-bg:oklch(.24 0 0); --statusbar-text:oklch(.80 0 0); --statusbar-border:oklch(.33 0 0);
+  color-scheme:dark;
+}
+/* --- Forest (calm green) --- */
+[data-theme="forest"] {
+  --bg:oklch(.19 .02 155); --bg-sunken:oklch(.16 .02 155); --bg-elevated:oklch(.23 .025 155);
+  --bg-hover:oklch(.28 .03 155); --bg-active:oklch(.33 .04 155);
+  --border:oklch(.34 .03 150); --border-soft:oklch(.27 .025 150);
+  --text:oklch(.95 .01 150); --text-2:oklch(.74 .02 150); --text-3:oklch(.58 .02 150);
+  --accent:oklch(.72 .14 150); --accent-text:oklch(.15 .02 150); --accent-soft:oklch(.60 .13 150/.22);
+  --warn:oklch(.78 .14 80); --ok:oklch(.78 .14 155); --drop:oklch(.72 .14 150/.9);
+  --statusbar-bg:oklch(.22 .03 155); --statusbar-text:oklch(.82 .03 150); --statusbar-border:oklch(.30 .03 150);
+  color-scheme:dark;
+}
+/* --- Dusk (warm amber) --- */
+[data-theme="dusk"] {
+  --bg:oklch(.20 .015 40); --bg-sunken:oklch(.17 .015 40); --bg-elevated:oklch(.24 .02 40);
+  --bg-hover:oklch(.29 .025 40); --bg-active:oklch(.34 .03 40);
+  --border:oklch(.35 .025 40); --border-soft:oklch(.28 .02 40);
+  --text:oklch(.96 .01 60); --text-2:oklch(.76 .02 50); --text-3:oklch(.60 .02 45);
+  --accent:oklch(.76 .13 55); --accent-text:oklch(.18 .02 50); --accent-soft:oklch(.70 .12 55/.22);
+  --warn:oklch(.80 .14 85); --ok:oklch(.76 .13 160); --drop:oklch(.76 .13 55/.9);
+  --statusbar-bg:oklch(.24 .025 40); --statusbar-text:oklch(.82 .02 50); --statusbar-border:oklch(.32 .025 40);
+  color-scheme:dark;
+}
+/* --- Dawn (soft warm light) --- */
+[data-theme="dawn"] {
+  --bg:oklch(.99 .008 70); --bg-sunken:oklch(.965 .01 70); --bg-elevated:oklch(1 0 0);
+  --bg-hover:oklch(.95 .012 60); --bg-active:oklch(.92 .015 55);
+  --border:oklch(.88 .012 60); --border-soft:oklch(.93 .01 65);
+  --text:oklch(.28 .02 50); --text-2:oklch(.48 .02 50); --text-3:oklch(.64 .02 55);
+  --accent:oklch(.62 .16 40); --accent-text:oklch(.99 0 0); --accent-soft:oklch(.62 .16 40/.12);
+  --warn:oklch(.62 .14 65); --ok:oklch(.58 .13 155); --drop:oklch(.62 .16 40/.85);
+  --statusbar-bg:oklch(.94 .012 60); --statusbar-text:oklch(.42 .02 50); --statusbar-border:oklch(.87 .015 60);
+  color-scheme:light;
+}
+/* --- Mist (cool light) --- */
+[data-theme="mist"] {
+  --bg:oklch(.99 .004 250); --bg-sunken:oklch(.96 .006 250); --bg-elevated:oklch(1 0 0);
+  --bg-hover:oklch(.95 .008 250); --bg-active:oklch(.92 .01 250);
+  --border:oklch(.88 .008 250); --border-soft:oklch(.93 .006 250);
+  --text:oklch(.26 .02 250); --text-2:oklch(.46 .02 250); --text-3:oklch(.62 .02 250);
+  --accent:oklch(.58 .14 230); --accent-text:oklch(.99 0 0); --accent-soft:oklch(.58 .14 230/.12);
+  --warn:oklch(.62 .14 65); --ok:oklch(.56 .13 160); --drop:oklch(.58 .14 230/.85);
+  --statusbar-bg:oklch(.94 .008 250); --statusbar-text:oklch(.42 .02 250); --statusbar-border:oklch(.87 .008 250);
+  color-scheme:light;
+}
+
+/* =========================================================
+   THEME PICKER  (settings popover)
+   ========================================================= */
+.theme-picker {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+  padding: 4px 9px 10px;
+}
+.theme-sw {
+  position: relative; height: 46px; border-radius: 9px; overflow: hidden; padding: 0;
+  border: 1.5px solid var(--border-soft); cursor: pointer;
+  transition: transform var(--speed), border-color var(--speed), box-shadow var(--speed);
+}
+.theme-sw:hover { transform: translateY(-2px); border-color: var(--text-3); }
+.theme-sw.is-active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.theme-sw__row { display: flex; height: 100%; width: 100%; }
+.theme-sw__bg { flex: 1; }
+.theme-sw__accent { width: 12px; }
+.theme-sw__bar { position: absolute; left: 0; right: 0; bottom: 0; height: 9px; }
+.theme-sw__check {
+  position: absolute; top: 3px; right: 3px; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--accent); color: var(--accent-text); font-size: 10px; font-weight: 700;
+  display: none; place-items: center; box-shadow: 0 1px 4px rgba(0,0,0,.35);
+}
+.theme-sw.is-active .theme-sw__check { display: grid; animation: a-pop .3s var(--spring); }
+
+/* Background tint toggle: when OFF (default) surfaces are neutral grey; when ON
+   the active theme's hue tints the backgrounds. Driven by --tint (0/1) so a
+   single attribute flips every surface via calc() on the chroma channel. */
+:root { --tint: 0; }
+[data-tint="on"] { --tint: 1; }
+
+/* the toggle switch UI */
+.tint-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:6px 10px 10px; }
+.tint-row__label { display:flex; flex-direction:column; gap:1px; }
+.tint-row__label b { font-size:12.5px; font-weight:600; color:var(--text); }
+.tint-row__label span { font-size:11px; color:var(--text-3); }
+.tgl { position:relative; width:38px; height:22px; border-radius:20px; background:var(--bg-active); border:1px solid var(--border); flex-shrink:0; transition:background var(--speed), border-color var(--speed); }
+.tgl::after { content:""; position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%; background:var(--text-2); transition:transform .2s var(--spring), background var(--speed); }
+.tgl.is-on { background:var(--accent); border-color:var(--accent); }
+.tgl.is-on::after { transform:translateX(16px); background:var(--accent-text); }
+
+/* =========================================================
+   THEME FAMILIES × MODE  (family-<mode> — the applied data-theme)
+   ========================================================= */
+/* swatch now previews BOTH variants (dark|light split + accent bar) */
+.theme-sw__split { position:absolute; inset:0; }
+.theme-sw__accent { position:absolute; right:0; top:0; bottom:0; width:12px; }
+
+/* Appearance mode segmented control */
+.mode-seg { display:flex; gap:5px; padding:2px 9px 8px; }
+.mode-seg button {
+  flex:1; height:30px; border-radius:7px; border:1px solid var(--border);
+  background:var(--bg-elevated); color:var(--text-2); font-size:12px; font-weight:550;
+  display:inline-flex; align-items:center; justify-content:center; gap:5px;
+  transition:background var(--speed), color var(--speed), border-color var(--speed), transform var(--speed);
+}
+.mode-seg button:hover { background:var(--bg-hover); color:var(--text); }
+.mode-seg button:active { transform:scale(.96); }
+.mode-seg button.is-active { background:var(--accent); color:var(--accent-text); border-color:var(--accent); }
+
+/* ---- CLASSIC (keeps the bright accent status bar) ---- */
+[data-theme="classic-dark"] {
+  --bg:oklch(.18 .006 260); --bg-sunken:oklch(.15 .006 260); --bg-elevated:oklch(.22 .007 260);
+  --bg-hover:oklch(.27 .008 260); --bg-active:oklch(.31 .012 260);
+  --border:oklch(.30 .008 260); --border-soft:oklch(.25 .007 260);
+  --text:oklch(.95 .004 260); --text-2:oklch(.72 .008 260); --text-3:oklch(.56 .008 260);
+  --accent:oklch(.62 .20 18); --accent-text:oklch(.99 0 0); --accent-soft:oklch(.40 .12 18/.22);
+  --warn:oklch(.72 .16 75); --ok:oklch(.72 .15 155); --drop:oklch(.62 .20 18/.9);
+  --statusbar-bg:var(--accent); --statusbar-text:var(--accent-text); --statusbar-border:rgba(255,255,255,.16);
+  color-scheme:dark;
+}
+[data-theme="classic-light"] {
+  --bg:oklch(.99 .002 260); --bg-sunken:oklch(.965 .003 260); --bg-elevated:oklch(1 0 0);
+  --bg-hover:oklch(.95 .004 260); --bg-active:oklch(.92 .006 260);
+  --border:oklch(.89 .005 260); --border-soft:oklch(.93 .004 260);
+  --text:oklch(.22 .01 260); --text-2:oklch(.45 .01 260); --text-3:oklch(.62 .01 260);
+  --accent:oklch(.58 .21 18); --accent-text:oklch(.99 0 0); --accent-soft:oklch(.58 .21 18/.12);
+  --warn:oklch(.60 .15 65); --ok:oklch(.55 .14 155); --drop:oklch(.58 .21 18/.85);
+  --statusbar-bg:var(--accent); --statusbar-text:var(--accent-text); --statusbar-border:rgba(255,255,255,.22);
+  color-scheme:light;
+}
+
+/* ---- RED PLUS (improved take on Classic red — richer accent, refined
+   gradient status bar instead of a flat eye-searing band) ---- */
+[data-theme="redplus-dark"] {
+  --bg:oklch(.185 calc(.022 * var(--tint)) 20); --bg-sunken:oklch(.155 calc(.02 * var(--tint)) 20); --bg-elevated:oklch(.225 calc(.026 * var(--tint)) 20);
+  --bg-hover:oklch(.275 calc(.032 * var(--tint)) 20); --bg-active:oklch(.32 calc(.04 * var(--tint)) 20);
+  --border:oklch(.33 calc(.04 * var(--tint)) 20); --border-soft:oklch(.26 calc(.03 * var(--tint)) 20);
+  --text:oklch(.96 .008 30); --text-2:oklch(.74 .02 25); --text-3:oklch(.58 .025 22);
+  --accent:oklch(.64 .245 24); --accent-text:oklch(.99 0 0); --accent-soft:oklch(.58 .20 24/.24);
+  --warn:oklch(.80 .15 80); --ok:oklch(.76 .14 158); --drop:oklch(.64 .245 24/.9);
+  --statusbar-bg:linear-gradient(90deg, oklch(.24 .05 22), oklch(.30 .075 24)); --statusbar-text:oklch(.86 .03 25); --statusbar-border:oklch(.33 .055 22);
+  color-scheme:dark;
+}
+[data-theme="redplus-light"] {
+  --bg:oklch(.99 calc(.01 * var(--tint)) 25); --bg-sunken:oklch(.97 calc(.012 * var(--tint)) 25); --bg-elevated:oklch(1 calc(0 * var(--tint)) 0);
+  --bg-hover:oklch(.955 calc(.016 * var(--tint)) 25); --bg-active:oklch(.925 calc(.022 * var(--tint)) 25);
+  --border:oklch(.88 calc(.016 * var(--tint)) 25); --border-soft:oklch(.93 calc(.012 * var(--tint)) 25);
+  --text:oklch(.26 .03 25); --text-2:oklch(.46 .04 25); --text-3:oklch(.62 .04 25);
+  --accent:oklch(.58 .235 25); --accent-text:oklch(.99 0 0); --accent-soft:oklch(.58 .235 25/.12);
+  --warn:oklch(.62 .15 70); --ok:oklch(.56 .14 158); --drop:oklch(.58 .235 25/.85);
+  --statusbar-bg:oklch(.945 .022 25); --statusbar-text:oklch(.43 .05 25); --statusbar-border:oklch(.87 .024 25);
+  color-scheme:light;
+}
+
+/* ---- INDIGO ---- */
+[data-theme="indigo-dark"] {
+  --bg:oklch(.185 calc(.04 * var(--tint)) 272); --bg-sunken:oklch(.155 calc(.04 * var(--tint)) 272); --bg-elevated:oklch(.225 calc(.05 * var(--tint)) 272);
+  --bg-hover:oklch(.28 calc(.065 * var(--tint)) 272); --bg-active:oklch(.33 calc(.08 * var(--tint)) 272);
+  --border:oklch(.35 calc(.07 * var(--tint)) 272); --border-soft:oklch(.27 calc(.05 * var(--tint)) 272);
+  --text:oklch(.95 .015 275); --text-2:oklch(.75 .04 275); --text-3:oklch(.60 .05 275);
+  --accent:oklch(.64 .21 274); --accent-text:oklch(.99 0 0); --accent-soft:oklch(.60 .19 274/.28);
+  --warn:oklch(.78 .15 78); --ok:oklch(.76 .14 160); --drop:oklch(.64 .21 274/.9);
+  --statusbar-bg:linear-gradient(90deg, oklch(.26 .06 272), oklch(.31 .09 274)); --statusbar-text:oklch(.86 .04 275); --statusbar-border:oklch(.34 .08 274);
+  color-scheme:dark;
+}
+[data-theme="indigo-light"] {
+  --bg:oklch(.985 calc(.012 * var(--tint)) 275); --bg-sunken:oklch(.965 calc(.016 * var(--tint)) 275); --bg-elevated:oklch(1 calc(0 * var(--tint)) 0);
+  --bg-hover:oklch(.95 calc(.022 * var(--tint)) 275); --bg-active:oklch(.92 calc(.03 * var(--tint)) 275);
+  --border:oklch(.88 calc(.022 * var(--tint)) 275); --border-soft:oklch(.93 calc(.016 * var(--tint)) 275);
+  --text:oklch(.25 .05 275); --text-2:oklch(.46 .05 275); --text-3:oklch(.62 .05 275);
+  --accent:oklch(.54 .22 275); --accent-text:oklch(.99 0 0); --accent-soft:oklch(.54 .22 275/.13);
+  --warn:oklch(.62 .14 65); --ok:oklch(.56 .13 160); --drop:oklch(.54 .22 275/.85);
+  --statusbar-bg:oklch(.945 .022 275); --statusbar-text:oklch(.42 .06 275); --statusbar-border:oklch(.87 .024 275);
+  color-scheme:light;
+}
+
+/* ---- GRAPHITE (slate + electric teal) ---- */
+[data-theme="graphite-dark"] {
+  --bg:oklch(.195 calc(.012 * var(--tint)) 210); --bg-sunken:oklch(.16 calc(.012 * var(--tint)) 210); --bg-elevated:oklch(.235 calc(.014 * var(--tint)) 210);
+  --bg-hover:oklch(.285 calc(.018 * var(--tint)) 205); --bg-active:oklch(.335 calc(.022 * var(--tint)) 205);
+  --border:oklch(.355 calc(.02 * var(--tint)) 205); --border-soft:oklch(.275 calc(.015 * var(--tint)) 205);
+  --text:oklch(.96 .006 210); --text-2:oklch(.75 .012 205); --text-3:oklch(.59 .015 205);
+  --accent:oklch(.74 .16 195); --accent-text:oklch(.15 .02 210); --accent-soft:oklch(.68 .15 195/.24);
+  --warn:oklch(.78 .15 78); --ok:oklch(.76 .14 160); --drop:oklch(.74 .16 195/.9);
+  --statusbar-bg:linear-gradient(90deg, oklch(.235 .018 205), oklch(.29 .03 200)); --statusbar-text:oklch(.84 .02 205); --statusbar-border:oklch(.34 .022 205);
+  color-scheme:dark;
+}
+[data-theme="graphite-light"] {
+  --bg:oklch(.98 calc(.004 * var(--tint)) 200); --bg-sunken:oklch(.955 calc(.006 * var(--tint)) 200); --bg-elevated:oklch(1 calc(0 * var(--tint)) 0);
+  --bg-hover:oklch(.94 calc(.008 * var(--tint)) 200); --bg-active:oklch(.91 calc(.01 * var(--tint)) 200);
+  --border:oklch(.87 calc(.008 * var(--tint)) 200); --border-soft:oklch(.925 calc(.006 * var(--tint)) 200);
+  --text:oklch(.24 .01 205); --text-2:oklch(.45 .012 205); --text-3:oklch(.60 .014 205);
+  --accent:oklch(.56 .13 195); --accent-text:oklch(.99 0 0); --accent-soft:oklch(.56 .13 195/.14);
+  --warn:oklch(.62 .14 65); --ok:oklch(.56 .13 160); --drop:oklch(.56 .13 195/.85);
+  --statusbar-bg:oklch(.93 .008 200); --statusbar-text:oklch(.40 .012 205); --statusbar-border:oklch(.86 .008 200);
+  color-scheme:light;
+}
+
+/* ---- FOREST (rich emerald) ---- */
+[data-theme="forest-dark"] {
+  --bg:oklch(.185 calc(.03 * var(--tint)) 158); --bg-sunken:oklch(.155 calc(.028 * var(--tint)) 158); --bg-elevated:oklch(.225 calc(.034 * var(--tint)) 158);
+  --bg-hover:oklch(.28 calc(.045 * var(--tint)) 156); --bg-active:oklch(.33 calc(.055 * var(--tint)) 156);
+  --border:oklch(.34 calc(.05 * var(--tint)) 154); --border-soft:oklch(.27 calc(.038 * var(--tint)) 154);
+  --text:oklch(.95 .015 150); --text-2:oklch(.75 .03 150); --text-3:oklch(.59 .035 150);
+  --accent:oklch(.73 .18 152); --accent-text:oklch(.14 .03 152); --accent-soft:oklch(.65 .17 152/.24);
+  --warn:oklch(.80 .15 82); --ok:oklch(.79 .16 155); --drop:oklch(.73 .18 152/.9);
+  --statusbar-bg:linear-gradient(90deg, oklch(.24 .045 156), oklch(.30 .07 152)); --statusbar-text:oklch(.86 .04 150); --statusbar-border:oklch(.33 .05 154);
+  color-scheme:dark;
+}
+[data-theme="forest-light"] {
+  --bg:oklch(.985 calc(.014 * var(--tint)) 150); --bg-sunken:oklch(.965 calc(.018 * var(--tint)) 150); --bg-elevated:oklch(1 calc(0 * var(--tint)) 0);
+  --bg-hover:oklch(.95 calc(.024 * var(--tint)) 150); --bg-active:oklch(.92 calc(.03 * var(--tint)) 150);
+  --border:oklch(.88 calc(.024 * var(--tint)) 150); --border-soft:oklch(.93 calc(.016 * var(--tint)) 150);
+  --text:oklch(.26 .04 150); --text-2:oklch(.45 .045 150); --text-3:oklch(.60 .045 150);
+  --accent:oklch(.53 .15 152); --accent-text:oklch(.99 0 0); --accent-soft:oklch(.53 .15 152/.14);
+  --warn:oklch(.62 .14 65); --ok:oklch(.56 .13 160); --drop:oklch(.53 .15 152/.85);
+  --statusbar-bg:oklch(.945 .024 150); --statusbar-text:oklch(.40 .045 150); --statusbar-border:oklch(.87 .024 150);
+  color-scheme:light;
+}
+
+/* ---- AMBER (warm gold) ---- */
+[data-theme="amber-dark"] {
+  --bg:oklch(.195 calc(.022 * var(--tint)) 45); --bg-sunken:oklch(.165 calc(.02 * var(--tint)) 45); --bg-elevated:oklch(.235 calc(.026 * var(--tint)) 45);
+  --bg-hover:oklch(.285 calc(.034 * var(--tint)) 48); --bg-active:oklch(.335 calc(.042 * var(--tint)) 48);
+  --border:oklch(.35 calc(.038 * var(--tint)) 48); --border-soft:oklch(.28 calc(.028 * var(--tint)) 48);
+  --text:oklch(.96 .015 65); --text-2:oklch(.77 .03 55); --text-3:oklch(.61 .035 50);
+  --accent:oklch(.77 .17 62); --accent-text:oklch(.18 .03 55); --accent-soft:oklch(.72 .16 62/.24);
+  --warn:oklch(.82 .16 88); --ok:oklch(.77 .14 160); --drop:oklch(.77 .17 62/.9);
+  --statusbar-bg:linear-gradient(90deg, oklch(.26 .035 48), oklch(.32 .06 55)); --statusbar-text:oklch(.87 .04 58); --statusbar-border:oklch(.34 .04 50);
+  color-scheme:dark;
+}
+[data-theme="amber-light"] {
+  --bg:oklch(.99 calc(.016 * var(--tint)) 75); --bg-sunken:oklch(.97 calc(.02 * var(--tint)) 70); --bg-elevated:oklch(1 calc(0 * var(--tint)) 0);
+  --bg-hover:oklch(.955 calc(.026 * var(--tint)) 65); --bg-active:oklch(.925 calc(.032 * var(--tint)) 60);
+  --border:oklch(.88 calc(.026 * var(--tint)) 65); --border-soft:oklch(.93 calc(.018 * var(--tint)) 68);
+  --text:oklch(.28 .04 55); --text-2:oklch(.47 .045 55); --text-3:oklch(.62 .045 58);
+  --accent:oklch(.63 .17 58); --accent-text:oklch(.99 0 0); --accent-soft:oklch(.63 .17 58/.14);
+  --warn:oklch(.62 .14 65); --ok:oklch(.56 .13 160); --drop:oklch(.63 .17 58/.85);
+  --statusbar-bg:oklch(.95 .026 65); --statusbar-text:oklch(.43 .045 55); --statusbar-border:oklch(.87 .026 65);
+  color-scheme:light;
+}
+
+/* ---- OCEAN (vivid azure) ---- */
+[data-theme="ocean-dark"] {
+  --bg:oklch(.185 calc(.035 * var(--tint)) 240); --bg-sunken:oklch(.155 calc(.032 * var(--tint)) 240); --bg-elevated:oklch(.225 calc(.04 * var(--tint)) 240);
+  --bg-hover:oklch(.28 calc(.055 * var(--tint)) 238); --bg-active:oklch(.33 calc(.068 * var(--tint)) 238);
+  --border:oklch(.34 calc(.06 * var(--tint)) 236); --border-soft:oklch(.27 calc(.045 * var(--tint)) 236);
+  --text:oklch(.95 .015 235); --text-2:oklch(.75 .035 235); --text-3:oklch(.59 .04 235);
+  --accent:oklch(.68 .18 242); --accent-text:oklch(.14 .03 240); --accent-soft:oklch(.62 .17 242/.24);
+  --warn:oklch(.80 .15 80); --ok:oklch(.77 .14 160); --drop:oklch(.68 .18 242/.9);
+  --statusbar-bg:linear-gradient(90deg, oklch(.24 .05 238), oklch(.30 .08 240)); --statusbar-text:oklch(.86 .04 235); --statusbar-border:oklch(.33 .06 238);
+  color-scheme:dark;
+}
+[data-theme="ocean-light"] {
+  --bg:oklch(.99 calc(.006 * var(--tint)) 250); --bg-sunken:oklch(.965 calc(.01 * var(--tint)) 250); --bg-elevated:oklch(1 calc(0 * var(--tint)) 0);
+  --bg-hover:oklch(.95 calc(.016 * var(--tint)) 250); --bg-active:oklch(.92 calc(.022 * var(--tint)) 250);
+  --border:oklch(.88 calc(.016 * var(--tint)) 250); --border-soft:oklch(.93 calc(.01 * var(--tint)) 250);
+  --text:oklch(.26 .035 245); --text-2:oklch(.46 .04 245); --text-3:oklch(.62 .04 245);
+  --accent:oklch(.54 .19 245); --accent-text:oklch(.99 0 0); --accent-soft:oklch(.54 .19 245/.13);
+  --warn:oklch(.62 .14 65); --ok:oklch(.56 .13 160); --drop:oklch(.54 .19 245/.85);
+  --statusbar-bg:oklch(.945 .016 250); --statusbar-text:oklch(.42 .04 245); --statusbar-border:oklch(.87 .016 250);
+  color-scheme:light;
+}
+
+/* ---- VIOLET (electric purple) ---- */
+[data-theme="violet-dark"] {
+  --bg:oklch(.185 calc(.035 * var(--tint)) 305); --bg-sunken:oklch(.155 calc(.032 * var(--tint)) 305); --bg-elevated:oklch(.225 calc(.042 * var(--tint)) 305);
+  --bg-hover:oklch(.28 calc(.055 * var(--tint)) 305); --bg-active:oklch(.33 calc(.07 * var(--tint)) 305);
+  --border:oklch(.34 calc(.06 * var(--tint)) 305); --border-soft:oklch(.27 calc(.045 * var(--tint)) 305);
+  --text:oklch(.95 .015 305); --text-2:oklch(.75 .035 305); --text-3:oklch(.60 .045 305);
+  --accent:oklch(.66 .24 310); --accent-text:oklch(.99 0 0); --accent-soft:oklch(.62 .21 310/.26);
+  --warn:oklch(.80 .15 80); --ok:oklch(.77 .14 160); --drop:oklch(.66 .24 310/.9);
+  --statusbar-bg:linear-gradient(90deg, oklch(.25 .06 305), oklch(.31 .10 312)); --statusbar-text:oklch(.87 .04 305); --statusbar-border:oklch(.34 .07 308);
+  color-scheme:dark;
+}
+[data-theme="violet-light"] {
+  --bg:oklch(.985 calc(.012 * var(--tint)) 310); --bg-sunken:oklch(.965 calc(.016 * var(--tint)) 310); --bg-elevated:oklch(1 calc(0 * var(--tint)) 0);
+  --bg-hover:oklch(.95 calc(.024 * var(--tint)) 310); --bg-active:oklch(.92 calc(.032 * var(--tint)) 310);
+  --border:oklch(.88 calc(.024 * var(--tint)) 310); --border-soft:oklch(.93 calc(.016 * var(--tint)) 310);
+  --text:oklch(.26 .045 310); --text-2:oklch(.46 .05 310); --text-3:oklch(.62 .05 310);
+  --accent:oklch(.55 .23 312); --accent-text:oklch(.99 0 0); --accent-soft:oklch(.55 .23 312/.13);
+  --warn:oklch(.62 .14 65); --ok:oklch(.56 .13 160); --drop:oklch(.55 .23 312/.85);
+  --statusbar-bg:oklch(.945 .024 310); --statusbar-text:oklch(.42 .05 310); --statusbar-border:oklch(.87 .024 310);
+  color-scheme:light;
+}

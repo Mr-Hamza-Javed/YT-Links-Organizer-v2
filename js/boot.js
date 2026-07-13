@@ -6,8 +6,26 @@
 const App = {
   _mql: null,
 
+  // Theme families — each has a light AND dark variant defined in styles.css
+  // as [data-theme="<family>-light"] / [data-theme="<family>-dark"].
+  // The final theme = chosen family × chosen mode (light / dark / system).
+  FAMILIES: [
+    { id: "classic",  name: "Classic",  accent: "oklch(.62 .20 18)",  dark: "oklch(.18 .006 260)", light: "oklch(.99 .002 260)" },
+    { id: "redplus",  name: "Red Plus", accent: "oklch(.64 .245 24)", dark: "oklch(.185 .022 20)",  light: "oklch(.99 .01 25)" },
+    { id: "indigo",   name: "Indigo",   accent: "oklch(.64 .21 274)", dark: "oklch(.185 .04 272)",  light: "oklch(.985 .012 275)" },
+    { id: "graphite", name: "Graphite", accent: "oklch(.74 .16 195)", dark: "oklch(.195 .012 210)", light: "oklch(.98 .004 200)" },
+    { id: "forest",   name: "Forest",   accent: "oklch(.73 .18 152)", dark: "oklch(.185 .03 158)",  light: "oklch(.985 .014 150)" },
+    { id: "amber",    name: "Amber",    accent: "oklch(.77 .17 62)",  dark: "oklch(.195 .022 45)",  light: "oklch(.99 .016 75)" },
+    { id: "ocean",    name: "Ocean",    accent: "oklch(.68 .18 242)", dark: "oklch(.185 .035 240)", light: "oklch(.99 .006 250)" },
+    { id: "violet",   name: "Violet",   accent: "oklch(.66 .24 310)", dark: "oklch(.185 .035 305)", light: "oklch(.985 .012 310)" },
+  ],
+  MODES: ["light", "dark", "system"],
+  family: "classic",
+  mode: "system",
+  tint: false,
+
   init() {
-    this.applyTheme(State.theme);
+    this.initTheme();
     this.applyCardSize(State.cardSize);
     this.wireChrome();
     this.wireSettings();
@@ -17,29 +35,59 @@ const App = {
     Auth.init();
   },
 
-  // ---------- THEME ----------
-  applyTheme(theme) {
-    State.theme = theme;
-    localStorage.setItem("ylo_theme", theme);
-    let effective = theme;
-    if (theme === "system") {
-      effective = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  // ---------- THEME (family × mode) ----------
+  initTheme() {
+    let family = localStorage.getItem("ylo_theme_family");
+    let mode = localStorage.getItem("ylo_theme_mode");
+    // migrate the old single-value setting, if present
+    if (!family || !mode) {
+      const old = localStorage.getItem("ylo_theme");
+      const map = { midnight: "indigo", graphite: "graphite", forest: "forest", dusk: "amber", dawn: "amber", mist: "ocean" };
+      if (old === "light" || old === "dark" || old === "system") { mode = mode || old; family = family || "classic"; }
+      else if (old && map[old]) { family = family || map[old]; mode = mode || (old === "dawn" || old === "mist" ? "light" : "dark"); }
+    }
+    this.family = this.FAMILIES.some((f) => f.id === family) ? family : "classic";
+    this.mode = this.MODES.includes(mode) ? mode : "system";
+    this.tint = localStorage.getItem("ylo_theme_tint") === "on";
+    this.applyAppearance();
+  },
+
+  applyAppearance() {
+    let eff = this.mode;
+    if (this.mode === "system") {
+      eff = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
       if (!this._mql) {
         this._mql = matchMedia("(prefers-color-scheme: dark)");
-        this._mql.addEventListener("change", () => { if (State.theme === "system") this.applyTheme("system"); });
+        this._mql.addEventListener("change", () => { if (this.mode === "system") this.applyAppearance(); });
       }
     }
-    document.documentElement.setAttribute("data-theme", effective);
-    const labels = { light: "Light", dark: "Dark", system: "System" };
-    const icos = { light: "☀️", dark: "🌙", system: "🖥️" };
-    const lbl = document.getElementById("themeLabel"); if (lbl) lbl.textContent = labels[theme];
-    const ico = document.getElementById("themeIco"); if (ico) ico.textContent = icos[theme];
+    document.documentElement.setAttribute("data-theme", `${this.family}-${eff}`);
+    document.documentElement.setAttribute("data-tint", this.tint ? "on" : "off");
+    localStorage.setItem("ylo_theme_family", this.family);
+    localStorage.setItem("ylo_theme_mode", this.mode);
+    localStorage.setItem("ylo_theme_tint", this.tint ? "on" : "off");
+    State.theme = this.mode; // kept for backward compatibility
+    this.renderThemeControls();
   },
-  cycleTheme() {
-    const order = ["light", "dark", "system"];
-    const next = order[(order.indexOf(State.theme) + 1) % order.length];
-    this.applyTheme(next);
-    UI.toast(`Theme: ${next.charAt(0).toUpperCase() + next.slice(1)}`, "info", 1400);
+
+  setMode(mode) { if (!this.MODES.includes(mode)) return; this.mode = mode; this.applyAppearance(); },
+  setFamily(family) { if (!this.FAMILIES.some((f) => f.id === family)) return; this.family = family; this.applyAppearance(); },
+  setTint(on) { this.tint = !!on; this.applyAppearance(); },
+
+  renderThemeControls() {
+    const host = document.getElementById("themePicker");
+    if (host) {
+      host.innerHTML = this.FAMILIES.map((f) => `
+        <button class="theme-sw ${f.id === this.family ? "is-active" : ""}" data-family="${f.id}" title="${f.name}" aria-label="${f.name}">
+          <span class="theme-sw__split" style="background:linear-gradient(125deg, ${f.dark} 0 52%, ${f.light} 52% 100%)"></span>
+          <span class="theme-sw__accent" style="background:${f.accent}"></span>
+          <span class="theme-sw__check">✓</span>
+        </button>`).join("");
+    }
+    const seg = document.getElementById("modeSeg");
+    if (seg) seg.querySelectorAll("button").forEach((b) => b.classList.toggle("is-active", b.dataset.mode === this.mode));
+    const tgl = document.getElementById("tintToggle");
+    if (tgl) { tgl.classList.toggle("is-on", this.tint); tgl.setAttribute("aria-checked", this.tint ? "true" : "false"); }
   },
 
   // ---------- CARD SIZE ----------
@@ -102,7 +150,6 @@ const App = {
       const item = e.target.closest(".popover__item");
       if (!item) return;
       const act = item.dataset.action;
-      if (act === "theme") { this.cycleTheme(); return; } // keep menu open
       menu.hidden = true;
       if (act === "archived") Lists.openArchivedModal();
       else if (act === "templates") Templates.openManager();
@@ -112,6 +159,30 @@ const App = {
     const slider = document.getElementById("cardSizeSlider");
     slider.addEventListener("input", () => this.applyCardSize(parseInt(slider.value, 10)));
     slider.addEventListener("mousedown", (e) => e.stopPropagation());
+
+    // theme picker (family) + appearance mode — keep the menu open on change
+    const picker = document.getElementById("themePicker");
+    if (picker) {
+      picker.addEventListener("click", (e) => {
+        const sw = e.target.closest(".theme-sw");
+        if (!sw) return;
+        this.setFamily(sw.dataset.family);
+        const t = this.FAMILIES.find((x) => x.id === sw.dataset.family);
+        UI.toast(`Theme: ${t ? t.name : sw.dataset.family}`, "info", 1400);
+      });
+    }
+    const modeSeg = document.getElementById("modeSeg");
+    if (modeSeg) {
+      modeSeg.addEventListener("click", (e) => {
+        const b = e.target.closest("button[data-mode]");
+        if (!b) return;
+        this.setMode(b.dataset.mode);
+      });
+    }
+    const tint = document.getElementById("tintToggle");
+    if (tint) {
+      tint.addEventListener("click", (e) => { e.stopPropagation(); this.setTint(!this.tint); });
+    }
   },
 
   // ---------- SEARCH ----------
