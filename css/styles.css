@@ -1271,3 +1271,40 @@ body { transition: background .45s var(--ease-out), color .45s var(--ease-out); 
   --statusbar-bg:oklch(.945 .024 310); --statusbar-text:oklch(.42 .05 310); --statusbar-border:oklch(.87 .024 310);
   color-scheme:light;
 }
+
+/* =========================================================
+   TOUCH SCREENS — no hover, so hover-only controls are always shown
+   ========================================================= */
+@media (hover: none), (pointer: coarse) {
+  .vcard__actions { opacity: 1; transform: none; }
+  .vcard__abtn { width: 34px; height: 34px; }          /* easier to tap */
+  .list-item__menu { opacity: 1; width: 30px; height: 30px; }
+  .vgroup__handle { opacity: 1; }
+}
+
+/* ---------- search with no results ---------- */
+.search-empty { padding: 60px 20px; }
+.search-empty p { margin-bottom: 14px; }
+
+/* ---------- offline notice ---------- */
+.offline-banner {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: calc(var(--statusbar-h) + 14px); z-index: 1500;
+  display: flex; align-items: center; gap: 9px; max-width: calc(100vw - 32px);
+  padding: 9px 16px; border-radius: 999px; font-size: 12.5px; font-weight: 550;
+  background: var(--bg-elevated); color: var(--text); border: 1px solid var(--border);
+  box-shadow: 0 8px 28px rgba(0,0,0,.28);
+}
+.offline-banner__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); flex-shrink: 0; }
+
+/* ---------- keyboard shortcuts dialog ---------- */
+.kbd-list { display: flex; flex-direction: column; gap: 4px; }
+.kbd-row { display: flex; align-items: center; gap: 14px; padding: 9px 4px; border-bottom: 1px solid var(--border-soft); }
+.kbd-row:last-child { border-bottom: none; }
+.kbd-row__keys { min-width: 130px; color: var(--text-3); font-size: 12px; }
+.kbd-row__desc { font-size: 13px; color: var(--text-2); }
+kbd {
+  display: inline-block; min-width: 22px; padding: 2px 7px; border-radius: 6px; text-align: center;
+  font-family: var(--font-mono, monospace); font-size: 12px; color: var(--text);
+  background: var(--bg-sunken); border: 1px solid var(--border); border-bottom-width: 2px;
+}

@@ -196,6 +196,8 @@ const Videos = {
     grid.innerHTML = Array.from({ length: n }, () =>
       '<div class="sk-card" aria-hidden="true"><div class="sk-thumb"></div><div class="sk-body"><div class="sk-line"></div><div class="sk-line sk-line--short"></div></div></div>').join("");
     document.getElementById("gridEmpty").hidden = true;
+    const se = document.getElementById("searchEmpty");
+    if (se) se.hidden = true;
   },
 
   // ---------- select & load a list ----------
@@ -257,7 +259,7 @@ const Videos = {
     else badge.hidden = true;
     // add button disabled for sync lists
     addBtn.disabled = l.syncMode === "sync";
-    addBtn.title = l.syncMode === "sync" ? "Sync lists mirror a playlist — manual adding is blocked" : "Add a video";
+    addBtn.title = l.syncMode === "sync" ? "Sync lists mirror a playlist — manual adding is blocked" : "Add a video (A)";
 
     // re-highlight active list item
     document.querySelectorAll(".list-item").forEach((el) => el.classList.toggle("is-active", el.dataset.id === State.activeListId));
@@ -266,6 +268,8 @@ const Videos = {
   clearGrid() {
     document.getElementById("videoGrid").innerHTML = "";
     document.getElementById("gridEmpty").hidden = true;
+    const se = document.getElementById("searchEmpty");
+    if (se) se.hidden = true;
   },
 
   orderedVideos() {
@@ -283,7 +287,11 @@ const Videos = {
     const viewBar = document.getElementById("viewBar");
     const vids = this.orderedVideos();
 
-    if (!State.uid || vids.length === 0) { if (viewBar) viewBar.hidden = true; }
+    if (!State.uid || vids.length === 0) {
+      if (viewBar) viewBar.hidden = true;
+      const se = document.getElementById("searchEmpty");
+      if (se) se.hidden = true;
+    }
 
     if (!State.uid) {
       grid.innerHTML = "";
@@ -1017,12 +1025,13 @@ const Videos = {
     // notes have nothing to refresh; videos and channels do
     const ids = Object.keys(vids).filter((k) => vids[k] && typeof vids[k] === "object" && vids[k].type !== "note");
     if (!ids.length) { UI.toast("No videos to refresh", "info"); return; }
-    UI.showLoading(`Refreshing ${ids.length} item${ids.length !== 1 ? "s" : ""}…`);
+    UI.showLoading(`Refreshing 0 / ${ids.length}…`);
     let done = 0;
     try {
       for (const vid of ids) {
         await this.refreshVideo(vid, { listId, video: vids[vid], silent: true });
         done++;
+        UI.setLoadingMsg(`Refreshing ${done} / ${ids.length}…`);
       }
       UI.toast(`Refreshed ${done} item${done !== 1 ? "s" : ""}`, "success");
     } catch (e) { UI.toast("Some refreshes failed: " + e.message, "error"); }
@@ -1117,6 +1126,18 @@ const Videos = {
       const anyVisible = [...sec.querySelectorAll(".vcard")].some((c) => !c.classList.contains("hidden"));
       sec.classList.toggle("group-hidden", !anyVisible);
     });
+    this._updateSearchEmpty();
+  },
+
+  // "No results for …" when a search hides every card of a non-empty list
+  _updateSearchEmpty() {
+    const box = document.getElementById("searchEmpty");
+    if (!box) return;
+    const term = (State.searchTerm || "").trim();
+    const cards = document.querySelectorAll("#videoGrid .vcard");
+    const show = !!term && !this._loading && cards.length > 0 && ![...cards].some((c) => !c.classList.contains("hidden"));
+    if (show) document.getElementById("searchEmptyMsg").textContent = `No results for “${term}” in this list.`;
+    box.hidden = !show;
   },
 
   // ---------- SORTABLE (grid reorder + drag-to-sidebar move) ----------

@@ -24,6 +24,11 @@ const UI = {
     document.getElementById("loadingMsg").textContent = msg;
     ov.hidden = false;
   },
+  // update the text of an overlay that's already showing (progress)
+  setLoadingMsg(msg) {
+    const el = document.getElementById("loadingMsg");
+    if (el) el.textContent = msg;
+  },
   hideLoading(force = false) {
     this._loadingCount = force ? 0 : Math.max(0, this._loadingCount - 1);
     if (this._loadingCount === 0) document.getElementById("loadingOverlay").hidden = true;
