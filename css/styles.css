@@ -350,10 +350,6 @@ input[type="range"] { accent-color: var(--accent); }
 .sk-line { height: 11px; border-radius: 6px; }
 .sk-line--short { width: 55%; }
 @keyframes sk-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
-/* Preview = this device's saved copy is shown while live data loads: it's
-   read-only (no clicks / drags) so nothing is ever written from an old copy. */
-.grid-wrap.is-preview #videoGrid, .grid-wrap.is-preview #viewBar { pointer-events: none; }
-.grid-wrap.is-preview #videoGrid { opacity: .72; transition: opacity .2s; }
 
 /* ---------- view bar (group / sort / filter) ---------- */
 .view-bar {

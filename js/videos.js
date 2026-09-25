@@ -12,24 +12,21 @@ const Videos = {
   /* ---------- live list subscriptions ----------
      Each opened list keeps a live listener ("sub") so switching back to it is
      instant and never re-downloads it. At most MAX_LIVE lists stay live (the
-     least recently used are released). A list's last data is also kept in the
-     browser (ListCache) so even the first open in a session shows instantly;
-     that copy is shown read-only ("preview") until the live data arrives. */
+     least recently used are released). */
   _subs: {},           // listId -> { refs, all, gotVideos, gotMeta, view, props, lastMeta, used }
   MAX_LIVE: 6,
-  _preview: false,
+  _loading: false,     // skeleton on screen while the open list downloads
 
   // stop every listener (sign-out)
   detachListeners() {
     Object.keys(this._subs).forEach((id) => this._dropSub(id));
-    this._setPreview(false);
+    this._loading = false;
   },
 
   _dropSub(listId) {
     const sub = this._subs[listId];
     if (!sub) return;
     sub.refs.forEach((r) => r.off());
-    clearTimeout(sub.saveT);
     delete this._subs[listId];
   },
 
@@ -70,12 +67,6 @@ const Videos = {
     return sub;
   },
 
-  // Warm a list up before it's clicked (hover / touch in the sidebar).
-  prefetch(listId) {
-    if (!State.uid || !State.lists[listId] || this._subs[listId]) return;
-    this._ensureSub(listId);
-  },
-
   _onListSnap(sub, snap) {
     if (this._subs[sub.listId] !== sub) return;
     const listId = sub.listId;
@@ -98,11 +89,10 @@ const Videos = {
     const prevView = l ? l.view : undefined, prevProps = l ? l.props : undefined;
     Lists.setDetail(listId, "view", view);
     Lists.setDetail(listId, "props", props);
-    this._saveCache(sub);
     if (!this._isActive(sub) || !this._ready(sub)) return;
     // own writes (already applied locally) and no-op echoes don't re-render
     const lNow = State.lists[listId];
-    if (first || this._preview || !Lists.sameDetail("view", prevView, view, lNow) || !Lists.sameDetail("props", prevProps, props, lNow)) this._showLive(sub);
+    if (first || this._loading || !Lists.sameDetail("view", prevView, view, lNow) || !Lists.sameDetail("props", prevProps, props, lNow)) this._showLive(sub);
   },
 
   _onVideosSnap(sub, snap) {
@@ -113,7 +103,6 @@ const Videos = {
     sub.gotVideos = true;
     // keep sidebar counts fresh (live data of any subscribed list is exact)
     Lists.setCount(listId, Lists.countItems(all));
-    this._saveCache(sub);
     if (this._isActive(sub) && this._ready(sub)) this._showLive(sub);
   },
 
@@ -134,7 +123,7 @@ const Videos = {
   _showLive(sub) {
     this._buildState(sub.all);
     if (State.lists[sub.listId]) State.lists[sub.listId]._count = Object.keys(State.videos).length;
-    this._setPreview(false);
+    this._loading = false;
     this.render();
     if (window.StatusBar) StatusBar.render();
 
@@ -145,23 +134,6 @@ const Videos = {
       const upd = {}; orphans.forEach(([k]) => { upd[k] = null; });
       DB.videos(sub.listId).update(upd).catch(() => {});
     }
-  },
-
-  // Preview = the browser copy is on screen; the grid is read-only until the
-  // live data replaces it (so nothing is ever written from an old copy).
-  _setPreview(on) {
-    this._preview = !!on;
-    const wrap = document.querySelector(".grid-wrap");
-    if (wrap) wrap.classList.toggle("is-preview", this._preview);
-  },
-
-  _saveCache(sub) {
-    if (!sub.gotVideos || typeof ListCache === "undefined") return;
-    clearTimeout(sub.saveT);
-    sub.saveT = setTimeout(() => {
-      if (this._subs[sub.listId] !== sub) return;
-      ListCache.put(sub.uid, sub.listId, { videos: sub.all, view: sub.view, props: sub.props });
-    }, 1500);
   },
 
   _renderSkeleton(listId) {
@@ -177,8 +149,7 @@ const Videos = {
 
   // ---------- select & load a list ----------
   // Only this list is downloaded (never all lists). Already-live lists show
-  // instantly; otherwise the browser copy (if any) shows at once, else a
-  // loading skeleton, until the live data arrives.
+  // instantly; otherwise a loading skeleton shows until the data arrives.
   selectList(listId) {
     if (!State.lists[listId]) return;
     State.activeListId = listId;
@@ -208,17 +179,9 @@ const Videos = {
       this._showLive(sub);
       return;
     }
-    this._setPreview(true);
+    // first open in this session: skeleton until the data arrives
+    this._loading = true;
     this._renderSkeleton(listId);
-    if (typeof ListCache === "undefined") return;
-    ListCache.get(sub.uid, listId).then((c) => {
-      // only if this list is still open and its live data hasn't landed yet
-      if (!c || !this._isActive(sub) || !this._preview || this._ready(sub)) return;
-      if (Lists.indexMode && !sub.gotMeta) { Lists.setDetail(listId, "view", c.view); Lists.setDetail(listId, "props", c.props); }
-      this._buildState(c.videos);
-      this.render();
-      if (window.StatusBar) StatusBar.render();
-    });
   },
 
   refreshActiveHeader() {
