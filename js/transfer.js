@@ -392,9 +392,10 @@ const Transfer = {
     // the archived flag so we can flag and word the conflict correctly.
     const nameMap = new Map(); // nameLower -> { id, name, isArchived }
     try {
-      const snap = await DB.lists().once("value");
-      const all = snap.val() || {};
+      // names of every list (from the small list index when available)
+      const all = await Lists.allListsMeta();
       Object.entries(all).forEach(([id, l]) => {
+        if (!l || typeof l !== "object") return;
         const key = (l.name || "").trim().toLowerCase();
         if (key && !nameMap.has(key)) nameMap.set(key, { id, name: l.name, isArchived: !!l.isArchived });
       });
@@ -919,7 +920,7 @@ const Transfer = {
     if (Object.keys(videos).length) data.videos = videos;
     if (list.props) data.props = list.props;   // keep custom property schema
     if (list.view) data.view = list.view;      // keep group/sort/filter view
-    await ref.set(data);
+    await Lists.createListRecord(ref.key, data);   // list + its sidebar index entry
   },
 
   async _mergeIntoList(listId, items) {
@@ -942,7 +943,11 @@ const Transfer = {
     // Place merged items above existing ones, keeping their relative order
     // (first imported item ends up topmost).
     toAdd.forEach((v, idx) => { updates[this._key()] = this._prepItemRecord(v, base - (n - idx)); });
-    if (Object.keys(updates).length) await DB.videos(listId).update(updates);
+    if (Object.keys(updates).length) {
+      await DB.videos(listId).update(updates);
+      // the open list's listener keeps its own count; update others here
+      if (listId !== State.activeListId) Lists.setCount(listId, Lists.countItems(Object.assign({}, existing, updates)));
+    }
     return { added: toAdd.length, skipped };
   },
 

@@ -40,6 +40,12 @@ const State = {
 
 // DB path helpers
 const DB = {
+  user: () => fbDb.ref(`users/${State.uid}`),
+  // listIndex: small per-list summary (name, emoji, order, count…) so the
+  // sidebar can load without downloading every list's videos. It is an
+  // additive copy — `lists` stays the full, authoritative record.
+  listIndex: () => fbDb.ref(`users/${State.uid}/listIndex`),
+  listIndexMeta: () => fbDb.ref(`users/${State.uid}/listIndexMeta`),
   lists: () => fbDb.ref(`users/${State.uid}/lists`),
   list: (id) => fbDb.ref(`users/${State.uid}/lists/${id}`),
   videos: (listId) => fbDb.ref(`users/${State.uid}/lists/${listId}/videos`),

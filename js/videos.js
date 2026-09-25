@@ -5,16 +5,25 @@
 const Videos = {
   sortable: null,
   _videoRef: null,
+  _detailRefs: [],     // list-record listener of the open list (index mode)
   _dragVideoId: null,
   _dropListId: null,
   _lastAutoSync: {},   // listId -> timestamp of last automatic reconcile
   _autoSyncing: {},    // listId -> bool (in-flight guard)
 
+  detachListeners() {
+    if (this._videoRef) { this._videoRef.off(); this._videoRef = null; }
+    this._detailRefs.forEach((r) => r.off());
+    this._detailRefs = [];
+  },
+
   // ---------- select & load a list ----------
+  // Downloads ONLY this list's items (and, in index mode, its small view /
+  // props settings) — other lists' videos are never loaded here.
   selectList(listId) {
     if (!State.lists[listId]) return;
-    // detach old listener
-    if (this._videoRef) { this._videoRef.off(); this._videoRef = null; }
+    // detach old listeners
+    this.detachListeners();
     State.activeListId = listId;
     State.videos = {};
 
@@ -36,6 +45,47 @@ const Videos = {
     // keep sync/pull lists in step with their YouTube playlist
     this.autoReconcile(listId);
 
+    // In index mode the view / props settings aren't in the sidebar index, so
+    // they come from a listener on the list record itself. It is attached
+    // BEFORE the videos listener, so Firebase downloads the list once and
+    // serves the videos listener from the same data. The handler reads only
+    // the small children (never materialises the videos). The grid renders
+    // once both have arrived (no flash of an ungrouped grid).
+    const indexMode = Lists.indexMode;
+    const got = { videos: false, meta: !indexMode };
+    const ready = () => got.videos && got.meta;
+    const renderAll = () => { this.render(); if (window.StatusBar) StatusBar.render(); };
+    if (indexMode) {
+      const listRef = DB.list(listId);
+      this._detailRefs.push(listRef);
+      let lastMeta = null;
+      listRef.on("value", (snap) => {
+        if (State.activeListId !== listId) return;
+        const first = !got.meta;
+        got.meta = true;
+        if (!snap.exists()) {
+          // list removed — if it wasn't this app, let the index catch up
+          Lists.onActiveListGone(listId);
+          if (first && ready()) renderAll();
+          return;
+        }
+        const raw = {};
+        Lists.INDEX_FIELDS.forEach((f) => { raw[f] = snap.child(f).val(); });
+        const meta = Lists.pickMeta(raw);
+        Lists.healActiveMeta(listId, meta, lastMeta);
+        lastMeta = meta;
+        const l = State.lists[listId];
+        const prevView = l ? l.view : undefined, prevProps = l ? l.props : undefined;
+        const view = snap.child("view").val(), props = snap.child("props").val();
+        Lists.setDetail(listId, "view", view);
+        Lists.setDetail(listId, "props", props);
+        if (!ready()) return;
+        // own writes (already applied locally) and no-op echoes don't re-render
+        const lNow = State.lists[listId];
+        if (first || !Lists.sameDetail("view", prevView, view, lNow) || !Lists.sameDetail("props", prevProps, props, lNow)) renderAll();
+      });
+    }
+
     this._videoRef = DB.videos(listId);
     this._videoRef.on("value", (snap) => {
       const all = snap.val() || {};
@@ -50,9 +100,11 @@ const Videos = {
         State.videos[vid] = v;
       });
       // keep sidebar counts fresh
-      if (State.lists[listId]) State.lists[listId]._count = Object.keys(State.videos).length;
-      this.render();
-      if (window.StatusBar) StatusBar.render();
+      const n = Object.keys(State.videos).length;
+      if (State.lists[listId]) State.lists[listId]._count = n;
+      Lists.setCount(listId, n);
+      got.videos = true;
+      if (ready()) renderAll();
 
       // one-time cleanup of orphan nodes left by an earlier bug (never touch notes)
       const orphans = Object.entries(all).filter(([k, v]) =>
@@ -781,6 +833,7 @@ const Videos = {
       const record = { ...v, order: minOrder - 1, timestamp: Date.now() };
       delete record.id; delete record._key;
       await DB.videos(destListId).push().set(record);
+      Lists.setCount(destListId, Lists.countItems(destVids) + 1);   // source is open → its listener updates it
       await DB.video(srcListId, vid).remove();
       UI.toast(`Moved to “${Utils.stripLeadingEmoji(dest.name) || dest.name}”`, "success");
       // a sync/pull source mirrors its playlist — pull the video right back
@@ -892,8 +945,10 @@ const Videos = {
 
       // new videos to add (by youtubeId)
       const toAdd = playlistIds.filter((id) => !existingYt.has(id));
+      let fetchedCount = 0;
       if (toAdd.length) {
         const fetched = await YT.fetchManyVideos(toAdd);
+        fetchedCount = fetched.length;
         let minOrder = Math.min(0, ...Object.values(existing).map((v) => v.order ?? 0));
         // push each new video under a fresh push key
         for (const data of fetched) {
@@ -911,6 +966,8 @@ const Videos = {
         });
         if (Object.keys(updates).length) await DB.videos(listId).update(updates);
       }
+      // the open list's listener keeps its own count; update others here
+      if (listId !== State.activeListId) Lists.setCount(listId, Lists.countItems(existing) - removed + fetchedCount);
       if (!silent) UI.toast(`Playlist synced — ${toAdd.length} added${removed ? `, ${removed} removed` : ""}`, "success");
       return { added: toAdd.length, removed };
     } catch (e) {

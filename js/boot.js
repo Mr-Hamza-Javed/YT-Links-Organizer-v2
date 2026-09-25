@@ -249,14 +249,15 @@ const App = {
     try {
       await YT.loadChannelCache();
     } catch (e) { /* non-fatal */ }
-    Lists.subscribe();
+    // loads only the small list index; a list's videos load when it's opened
+    try { await Lists.subscribe(); } catch (e) { console.warn("list subscribe failed", e); }
     Templates.subscribe();
     UI.hideLoading();
   },
 
   onSignedOut() {
     // detach listeners
-    if (Videos._videoRef) { Videos._videoRef.off(); Videos._videoRef = null; }
+    Videos.detachListeners();
     Lists.unsubscribe();
     Templates.unsubscribe();
     State.lists = {}; State.videos = {}; State.templates = {}; State.activeListId = null; State.archivedOpen = new Set();
