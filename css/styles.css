@@ -339,17 +339,30 @@ input[type="range"] { accent-color: var(--accent); }
 }
 
 /* ---------- loading: skeleton cards + read-only preview ---------- */
-/* Skeleton = a list opened for the first time on this device, data on its way. */
-.sk-card { background: var(--bg-elevated); border: 1px solid var(--border-soft); border-radius: var(--radius); overflow: hidden; }
-.sk-thumb, .sk-line {
-  background: linear-gradient(90deg, var(--bg-sunken) 25%, var(--bg-hover) 50%, var(--bg-sunken) 75%);
-  background-size: 200% 100%; animation: sk-shimmer 1.2s ease-in-out infinite;
+/* Skeleton = a list opened for the first time in this session, data on its
+   way. Its greys are mixed from the theme's TEXT colour, so they stand out
+   from the background in every theme (dark or light, any colour family). */
+.sk-card {
+  --sk-base: color-mix(in oklab, var(--text) 9%, var(--bg-elevated));
+  --sk-shine: color-mix(in oklab, var(--text) 17%, var(--bg-elevated));
+  background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.sk-thumb, .sk-avatar, .sk-line {
+  background-color: var(--sk-base);
+  background-image: linear-gradient(100deg, transparent 20%, var(--sk-shine) 50%, transparent 80%);
+  background-size: 250% 100%; background-repeat: no-repeat;
+  animation: sk-shimmer 1.35s ease-in-out infinite;
 }
 .sk-thumb { aspect-ratio: 16/9; }
-.sk-body { padding: 13px 12px 15px; display: flex; flex-direction: column; gap: 8px; }
+.sk-body { display: flex; gap: 11px; padding: 11px 12px 14px; }
+.sk-avatar { width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0; margin-top: 1px; }
+.sk-lines { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; padding-top: 2px; }
 .sk-line { height: 11px; border-radius: 6px; }
+.sk-line--title { height: 13px; width: 88%; }
 .sk-line--short { width: 55%; }
-@keyframes sk-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+.sk-line--tiny { width: 35%; height: 9px; }
+@keyframes sk-shimmer { from { background-position: 150% 0; } to { background-position: -150% 0; } }
 
 /* ---------- view bar (group / sort / filter) ---------- */
 .view-bar {
