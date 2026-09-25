@@ -4,14 +4,29 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>YouTube Link Organizer</title>
+<meta name="description" content="Save YouTube videos into custom lists, mirror whole playlists, keep Notion-style notes and sync everything across your devices." />
+<meta name="theme-color" content="#16181c" />
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+<link rel="icon" href="icons/favicon-32.png" sizes="32x32" type="image/png" />
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+<link rel="manifest" href="manifest.webmanifest" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="Link Organizer" />
+<!-- link previews (WhatsApp, Slack, X…) -->
+<meta property="og:type" content="website" />
+<meta property="og:title" content="YouTube Link Organizer" />
+<meta property="og:description" content="Save YouTube videos into custom lists, mirror whole playlists, keep notes and sync across devices." />
+<meta property="og:image" content="icons/icon-512.png" />
+<meta name="twitter:card" content="summary" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 <!-- ?v=… makes browsers fetch updated files right after a release instead of
      using a cached copy for hours. Change it (e.g. to today's date) whenever
      any css/js file changes. -->
-<link rel="stylesheet" href="css/styles.css?v=20260925-3" />
-<link rel="stylesheet" href="css/editor.css?v=20260925-3" />
+<link rel="stylesheet" href="css/styles.css?v=20260925-4" />
+<link rel="stylesheet" href="css/editor.css?v=20260925-4" />
 </head>
 <body>
 
@@ -68,6 +83,9 @@
           <button class="popover__item" data-action="export"><span class="popover__ico">↑</span><span>Export Data</span></button>
           <button class="popover__item" data-action="import"><span class="popover__ico">↓</span><span>Import Data</span></button>
           <div class="popover__divider"></div>
+          <button class="popover__item" data-action="shortcuts"><span class="popover__ico">⌨️</span><span>Keyboard Shortcuts</span></button>
+          <button class="popover__item" data-action="install" id="installAppBtn" hidden><span class="popover__ico">📲</span><span>Install App</span></button>
+          <div class="popover__divider"></div>
           <div class="popover__slider">
             <label>Card size</label>
             <input type="range" id="cardSizeSlider" min="250" max="450" step="10" value="320" />
@@ -109,11 +127,11 @@
       </div>
       <div class="topbar__search">
         <svg viewBox="0 0 24 24" width="16" height="16"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-        <input id="searchInput" type="text" placeholder="Search videos…" autocomplete="off" />
+        <input id="searchInput" type="text" placeholder="Search videos…  ( / )" autocomplete="off" />
         <button id="searchClear" class="search-clear" hidden aria-label="Clear search">×</button>
       </div>
       <div class="split-add" id="splitAdd">
-        <button id="addVideoBtn" class="btn btn--primary split-add__main" title="Add a video">
+        <button id="addVideoBtn" class="btn btn--primary split-add__main" title="Add a video (A)">
           <svg viewBox="0 0 24 24" width="16" height="16"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           <span class="btn__label">Add Video</span>
         </button>
@@ -126,12 +144,23 @@
     <section class="grid-wrap">
       <div id="viewBar" class="view-bar" hidden></div>
       <div id="videoGrid" class="video-grid"></div>
+      <div id="searchEmpty" class="grid-empty search-empty" hidden>
+        <div class="grid-empty__art">🔍</div>
+        <p id="searchEmptyMsg">No results.</p>
+        <button id="searchEmptyClear" class="btn btn--ghost">Clear search</button>
+      </div>
       <div id="gridEmpty" class="grid-empty" hidden>
         <div class="grid-empty__art">▶</div>
         <p id="gridEmptyMsg">No videos yet.</p>
         <p class="grid-empty__hint" id="gridEmptyHint">Add a YouTube link to get started — or just paste one anywhere.</p>
       </div>
     </section>
+
+    <!-- ============ OFFLINE NOTICE ============ -->
+    <div id="offlineBanner" class="offline-banner" role="status" aria-live="polite" hidden>
+      <span class="offline-banner__dot"></span>
+      <span>You're offline — changes will sync when you're back online.</span>
+    </div>
 
     <!-- ============ STATUS BAR ============ -->
     <footer id="statusBar" class="statusbar">
@@ -221,21 +250,21 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 
-<script src="js/config.js?v=20260925-3"></script>
-<script src="js/utils.js?v=20260925-3"></script>
-<script src="js/ui.js?v=20260925-3"></script>
-<script src="js/youtube.js?v=20260925-3"></script>
-<script src="js/auth.js?v=20260925-3"></script>
-<script src="js/lists.js?v=20260925-3"></script>
-<script src="js/templates.js?v=20260925-3"></script>
-<script src="js/notes.js?v=20260925-3"></script>
-<script src="js/grouping.js?v=20260925-3"></script>
-<script src="js/videos.js?v=20260925-3"></script>
-<script src="js/transfer.js?v=20260925-3"></script>
-<script src="js/statusbar.js?v=20260925-3"></script>
-<script src="js/editor.js?v=20260925-3"></script>
-<script src="js/boot.js?v=20260925-3"></script>
-<script src="js/animations.js?v=20260925-3"></script>
+<script src="js/config.js?v=20260925-4"></script>
+<script src="js/utils.js?v=20260925-4"></script>
+<script src="js/ui.js?v=20260925-4"></script>
+<script src="js/youtube.js?v=20260925-4"></script>
+<script src="js/auth.js?v=20260925-4"></script>
+<script src="js/lists.js?v=20260925-4"></script>
+<script src="js/templates.js?v=20260925-4"></script>
+<script src="js/notes.js?v=20260925-4"></script>
+<script src="js/grouping.js?v=20260925-4"></script>
+<script src="js/videos.js?v=20260925-4"></script>
+<script src="js/transfer.js?v=20260925-4"></script>
+<script src="js/statusbar.js?v=20260925-4"></script>
+<script src="js/editor.js?v=20260925-4"></script>
+<script src="js/boot.js?v=20260925-4"></script>
+<script src="js/animations.js?v=20260925-4"></script>
 
 <!-- TipTap (Notion-style editor engine) loaded as an ES module from a CDN.
      No build step: it resolves a single shared @tiptap/pm, then exposes the

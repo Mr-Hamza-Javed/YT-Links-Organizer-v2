@@ -510,6 +510,7 @@
         </div>`;
       page.hidden = false;
       document.body.classList.add("editor-open");
+      this._pushHistory();
 
       page.querySelector(".ed-back").addEventListener("click", () => self.close());
       page.querySelector("#edDone").addEventListener("click", () => self.close());
@@ -834,7 +835,19 @@
       try { window.StatusBar && StatusBar.render(); } catch (_) {}
     },
 
-    async close() {
+    // ---- browser / phone Back button closes the editor ----
+    // Opening adds one history entry; Back pops it (→ close), and closing
+    // with Done / Esc removes it again, so Back never leaves the app early.
+    _pushHistory() {
+      try {
+        if (!(history.state && history.state.ylEditor)) history.pushState({ ylEditor: true }, "");
+        this._histOpen = true;
+      } catch (_) { this._histOpen = false; }
+    },
+
+    async close(opts = {}) {
+      if (this._closing) return;
+      this._closing = true;
       try { await this._persist(); } catch (_) {}
       this._hideSlash(); this._hideBubble(); this._closeBlockMenu(); this._hideTableToolbar();
       const scroller = document.querySelector("#editorPage .ed-scroll");
@@ -851,6 +864,12 @@
       this._itemId = this._listId = this._item = null;
       this._onKeyDown = this._onScroll = this._onMouseUp = this._onKeyUp = null;
       this._bubbleEl = null; this._handleEl = null; this._handleBlock = null; this._tableTbEl = null;  // children of #editorPage; rebuilt on next open
+      if (!opts.fromHistory && this._histOpen && history.state && history.state.ylEditor) {
+        this._ignorePop = true;          // our own step back — not a user "Back"
+        try { history.back(); } catch (_) { this._ignorePop = false; }
+      }
+      this._histOpen = false;
+      this._closing = false;
     },
 
     async _copyAll() {
@@ -1275,6 +1294,14 @@
 
   // Expose the pure markdown engine (handy for export/import + testing).
   NoteEditor.md = { toMarkdown: docToMarkdown, parse: parseMarkdown, fragmentToMarkdown };
+
+  window.addEventListener("popstate", () => {
+    if (NoteEditor._ignorePop) { NoteEditor._ignorePop = false; return; }
+    if (NoteEditor._itemId && NoteEditor._histOpen) {
+      NoteEditor._histOpen = false;
+      NoteEditor.close({ fromHistory: true });   // saves first, like Done
+    }
+  });
 
   window.NoteEditor = NoteEditor;
 })();

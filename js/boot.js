@@ -31,6 +31,8 @@ const App = {
     this.wireSettings();
     this.wireSearch();
     this.wireGlobalPaste();
+    this.wireShortcuts();
+    this.wirePwa();
     StatusBar.init();
     Auth.init();
   },
@@ -175,6 +177,8 @@ const App = {
       else if (act === "templates") Templates.openManager();
       else if (act === "export") Transfer.openExport();
       else if (act === "import") Transfer.openImport();
+      else if (act === "shortcuts") this.openShortcuts();
+      else if (act === "install") this.installApp();
     });
     const slider = document.getElementById("cardSizeSlider");
     slider.addEventListener("input", () => this.applyCardSize(parseInt(slider.value, 10)));
@@ -219,6 +223,114 @@ const App = {
       input.value = ""; State.searchTerm = ""; clear.hidden = true;
       Videos.applySearchFilter(); input.focus();
     });
+    // "Clear search" button shown when a search finds nothing
+    const emptyClear = document.getElementById("searchEmptyClear");
+    if (emptyClear) emptyClear.addEventListener("click", () => clear.click());
+    // Esc in the search box clears it (a second Esc leaves the box)
+    input.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      if (input.value) clear.click(); else input.blur();
+    });
+  },
+
+  focusSearch() {
+    const input = document.getElementById("searchInput");
+    if (!input) return;
+    input.focus();
+    input.select();
+  },
+
+  // ---------- KEYBOARD SHORTCUTS ----------
+  SHORTCUTS: [
+    ["/", "Search this list"],
+    ["Ctrl / ⌘ + K", "Search this list"],
+    ["A", "Add a video"],
+    ["N", "New note"],
+    ["Esc", "Clear search · close a dialog or the note editor"],
+    ["?", "Show these shortcuts"],
+  ],
+
+  wireShortcuts() {
+    document.addEventListener("keydown", (e) => {
+      if (e.defaultPrevented || e.isComposing || !State.uid) return;
+      const t = e.target;
+      const typing = !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
+      // never while a dialog, a confirm or the note editor is open
+      const busy = !!document.querySelector("#modalHost .modal-overlay, #confirmHost .modal-overlay")
+        || document.body.classList.contains("editor-open");
+      if (busy) return;
+      const key = e.key || "";
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && key.toLowerCase() === "k") {
+        e.preventDefault(); this.focusSearch(); return;
+      }
+      if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (key === "/") { e.preventDefault(); this.focusSearch(); }
+      else if (key === "a" || key === "A") { e.preventDefault(); UI.closeAllPopovers(); Videos.openAddModal(); }
+      else if (key === "n" || key === "N") { e.preventDefault(); UI.closeAllPopovers(); Videos.createNoteAndOpen(); }
+      else if (key === "?") { e.preventDefault(); this.openShortcuts(); }
+    });
+  },
+
+  openShortcuts() {
+    const rows = this.SHORTCUTS.map(([k, d]) => `
+      <div class="kbd-row"><span class="kbd-row__keys">${k.split(" + ").map((x) => `<kbd>${Utils.escapeHtml(x)}</kbd>`).join(" + ")}</span><span class="kbd-row__desc">${Utils.escapeHtml(d)}</span></div>`).join("");
+    UI.openModal({ title: "Keyboard Shortcuts", bodyHtml: `<div class="kbd-list">${rows}</div><p class="hint" style="margin-top:14px;">Shortcuts work when you're not typing in a box.</p>` });
+  },
+
+  // ---------- INSTALLABLE APP (PWA) + OFFLINE NOTICE ----------
+  wirePwa() {
+    // service worker: makes the app installable (see sw.js — network-first)
+    if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("sw.js").catch((e) => console.warn("Service worker registration failed", e));
+      });
+    }
+    const btn = document.getElementById("installAppBtn");
+    window.addEventListener("beforeinstallprompt", (e) => {
+      e.preventDefault();               // show our own "Install App" item instead
+      this._installPrompt = e;
+      if (btn) btn.hidden = false;
+    });
+    window.addEventListener("appinstalled", () => {
+      this._installPrompt = null;
+      if (btn) btn.hidden = true;
+      UI.toast("App installed", "success");
+    });
+
+    // offline notice: browser offline, or the database connection dropped
+    const banner = document.getElementById("offlineBanner");
+    if (!banner) return;
+    let dbConnected = null, everConnected = false, timer = null;
+    const update = () => {
+      const offline = !navigator.onLine || (everConnected && dbConnected === false);
+      clearTimeout(timer);
+      if (!offline) { banner.hidden = true; return; }
+      // short blips (switching Wi-Fi, waking a laptop) don't flash the notice
+      timer = setTimeout(() => { banner.hidden = false; }, navigator.onLine ? 3000 : 800);
+    };
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+    try {
+      fbDb.ref(".info/connected").on("value", (snap) => {
+        dbConnected = !!snap.val();
+        if (dbConnected) everConnected = true;
+        update();
+      });
+    } catch (e) { /* notice still follows the browser's online state */ }
+    update();
+  },
+
+  async installApp() {
+    const p = this._installPrompt;
+    if (!p) {
+      UI.toast("Use your browser menu → “Install app” / “Add to Home screen”", "info", 4500);
+      return;
+    }
+    this._installPrompt = null;
+    const btn = document.getElementById("installAppBtn");
+    if (btn) btn.hidden = true;
+    try { p.prompt(); await p.userChoice; } catch (e) { /* dismissed */ }
   },
 
   // ---------- GLOBAL PASTE ----------
