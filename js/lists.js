@@ -248,8 +248,10 @@ const Lists = {
     const name = await UI.prompt({ title: "Rename List", label: "List name", value: l.name, confirmText: "Rename" });
     if (name == null || !name.trim()) return;
     const emoji = Utils.leadingEmoji(name) || l.emoji || Utils.autoEmoji(name);
-    await DB.list(id).update({ name: name.trim(), emoji });
-    UI.toast("List renamed", "success", 1500);
+    try {
+      await DB.list(id).update({ name: name.trim(), emoji });
+      UI.toast("List renamed", "success", 1500);
+    } catch (e) { UI.toast("Couldn't rename list: " + e.message, "error"); }
   },
 
   async changeEmoji(id) {
@@ -261,25 +263,31 @@ const Lists = {
     if (!input.trim()) emoji = Utils.autoEmoji(l.name);
     else if (Utils.isEmoji(input.trim())) emoji = Utils.leadingEmoji(input.trim()) || input.trim();
     else { UI.toast("That doesn't look like an emoji — auto-picking", "info"); emoji = Utils.autoEmoji(l.name); }
-    await DB.list(id).update({ emoji });
-    UI.toast("Emoji updated", "success", 1500);
+    try {
+      await DB.list(id).update({ emoji });
+      UI.toast("Emoji updated", "success", 1500);
+    } catch (e) { UI.toast("Couldn't update emoji: " + e.message, "error"); }
   },
 
   async deleteList(id) {
-    const nonArchived = Object.values(State.lists).filter((l) => !l.isArchived);
-    const totalAll = Object.keys(State.lists).length;
-    if (nonArchived.length <= 1 && !State.lists[id]?.isArchived && totalAll <= 1) {
+    const l = State.lists[id];
+    if (!l) return;
+    // Only active (non-archived) lists count here: a temporarily-opened
+    // archived list must not let the last active list be deleted.
+    const activeCount = Object.values(State.lists).filter((x) => !x.isArchived).length;
+    if (!l.isArchived && activeCount <= 1) {
       UI.toast("Can't delete your last list", "error"); return;
     }
-    const l = State.lists[id];
     const ok = await UI.confirm({
       title: "Delete list?",
       message: `“${Utils.escapeHtml(Utils.stripLeadingEmoji(l.name) || l.name)}” and all its videos & notes will be permanently deleted.`,
       confirmText: "Delete",
     });
     if (!ok) return;
+    try {
+      await DB.list(id).remove();
+    } catch (e) { UI.toast("Couldn't delete list: " + e.message, "error"); return; }
     State.archivedOpen.delete(id);
-    await DB.list(id).remove();
     if (State.activeListId === id) {
       State.activeListId = null;
       const next = this.ordered()[0];
@@ -299,7 +307,9 @@ const Lists = {
       confirmText: "Archive", danger: false,
     });
     if (!ok) return;
-    await DB.list(id).update({ isArchived: true, archivedAt: Date.now() });
+    try {
+      await DB.list(id).update({ isArchived: true, archivedAt: Date.now() });
+    } catch (e) { UI.toast("Couldn't archive list: " + e.message, "error"); return; }
     State.archivedOpen.delete(id);
     if (State.activeListId === id) {
       const next = this.ordered().find((x) => x.id !== id);
@@ -310,9 +320,12 @@ const Lists = {
 
   async unarchive(id) {
     const maxOrder = Math.max(-1, ...Object.values(State.lists).filter((l) => !l.isArchived).map((l) => l.order ?? 0));
-    await DB.list(id).update({ isArchived: false, archivedAt: null, order: maxOrder + 1 });
+    try {
+      await DB.list(id).update({ isArchived: false, archivedAt: null, order: maxOrder + 1 });
+    } catch (e) { UI.toast("Couldn't restore list: " + e.message, "error"); return false; }
     State.archivedOpen.delete(id);
     UI.toast("List restored", "success");
+    return true;
   },
 
   // ---------- ARCHIVED LISTS modal ----------
@@ -324,7 +337,10 @@ const Lists = {
       const snap = await DB.lists().once("value");
       const all = snap.val() || {};
       archived = Object.entries(all).filter(([, l]) => l.isArchived).map(([id, l]) => ({ id, ...l }));
-    } catch (e) {} finally { UI.hideLoading(); }
+    } catch (e) {
+      UI.toast("Couldn't load archived lists: " + e.message, "error");
+      return;
+    } finally { UI.hideLoading(); }
 
     const body = archived.length ? `<div class="archived-list">${archived.map((l) => `
       <div class="archived-row" data-id="${l.id}">
@@ -359,16 +375,19 @@ const Lists = {
             // Reload lists (so the archived one is in State.lists) THEN open it.
             // Running selectList before forceReload's async data landed was why
             // it appeared in the sidebar but never opened on its own.
-            this.forceReload().then(() => Videos.selectList(id));
+            this.forceReload().then(() => Videos.selectList(id))
+              .catch((e) => UI.toast("Couldn't open list: " + e.message, "error"));
           });
           row.querySelector('[data-act="unarchive"]').addEventListener("click", async () => {
-            await this.unarchive(id); row.remove();
+            if (await this.unarchive(id)) row.remove();
           });
           row.querySelector('[data-act="delete"]').addEventListener("click", async () => {
             const ok = await UI.confirm({ title: "Delete archived list?", message: "This permanently removes the list and its videos.", confirmText: "Delete" });
             if (!ok) return;
-            await DB.list(id).remove(); row.remove();
-            UI.toast("List deleted", "success");
+            try {
+              await DB.list(id).remove(); row.remove();
+              UI.toast("List deleted", "success");
+            } catch (e) { UI.toast("Couldn't delete list: " + e.message, "error"); }
           });
         });
       },

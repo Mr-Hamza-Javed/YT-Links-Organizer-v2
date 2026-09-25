@@ -243,7 +243,10 @@ const Transfer = {
       let statusbar = null;
       try { statusbar = JSON.parse(localStorage.getItem("ylo_statusbar") || "null"); } catch (e) {}
       data.settings = {
-        theme: State.theme,
+        theme: State.theme,          // kept so older app versions can still read it
+        themeFamily: App.family,
+        themeMode: App.mode,
+        themeTint: !!App.tint,
         cardSize: State.cardSize,
         statusbar: statusbar || (window.StatusBar ? StatusBar.config : null),
       };
@@ -741,15 +744,30 @@ const Transfer = {
 
     // Settings
     if (cfg.settings && model.settings) {
-      try {
-        const s = model.settings;
-        if (s.theme) App.applyTheme(s.theme);
-        if (s.cardSize) App.applyCardSize(parseInt(s.cardSize, 10) || State.cardSize);
-        if (s.statusbar && window.StatusBar) {
-          StatusBar.config = s.statusbar; StatusBar.saveConfig(); StatusBar.render();
-        }
-        log("Imported app settings");
-      } catch (e) { errCount++; log("Settings failed: " + e.message, "error"); }
+      // each setting is applied on its own, so one bad value can't block the rest
+      const s = model.settings;
+      const parts = [
+        ["theme", () => {
+          if (!s.theme && !s.themeFamily && !s.themeMode && typeof s.themeTint !== "boolean") return false;
+          App.importAppearance(s); return true;
+        }],
+        ["card size", () => {
+          const px = parseInt(s.cardSize, 10);
+          if (!px) return false;
+          App.applyCardSize(Math.min(450, Math.max(250, px))); return true;
+        }],
+        ["status bar", () => {
+          if (!s.statusbar || !window.StatusBar) return false;
+          if (!StatusBar.setConfig(s.statusbar)) throw new Error("unrecognised status bar format");
+          StatusBar.saveConfig(); StatusBar.render(); return true;
+        }],
+      ];
+      const applied = [];
+      for (const [label, apply] of parts) {
+        try { if (apply()) applied.push(label); }
+        catch (e) { errCount++; log(`Settings (${label}) failed: ${e.message}`, "error"); }
+      }
+      if (applied.length) log(`Imported app settings: ${applied.join(", ")}`);
       step("settings");
       await this._tick();
     }
@@ -766,7 +784,14 @@ const Transfer = {
       await this._tick();
     }
 
-    // Lists
+    // Lists — every new active list gets its own, increasing sidebar position
+    // (previously they could all share the same `order` and shuffle around).
+    let lastOrder = -1;
+    const nextListOrder = () => {
+      const cur = Math.max(-1, ...Object.values(State.lists || {}).filter((l) => !l.isArchived).map((l) => Number(l.order) || 0));
+      lastOrder = Math.max(lastOrder, cur) + 1;
+      return lastOrder;
+    };
     for (const job of jobs) {
       const { list, c } = job;
       const name = Utils.stripLeadingEmoji(list.name) || list.name;
@@ -775,7 +800,7 @@ const Transfer = {
         if (c.conflict && c.mode === "merge") {
           const targetId = c.existingId || (self._findExistingListByName(list.name) || {}).id;
           if (!targetId) { // fallback to creating new
-            await self._createListWithItems(list, items);
+            await self._createListWithItems(list, items, nextListOrder);
             added += items.length;
             log(`“${name}” created (no existing list found to merge) — ${items.length} item(s)`);
           } else {
@@ -787,11 +812,11 @@ const Transfer = {
           const newName = (c.newName || "").trim() || list.name;
           // Renaming to dodge a clash means the user wants to USE this list now,
           // so bring it in active (not archived) regardless of the source flag.
-          await self._createListWithItems({ ...list, name: newName, isArchived: false }, items);
+          await self._createListWithItems({ ...list, name: newName, isArchived: false }, items, nextListOrder);
           added += items.length;
           log(`“${newName}” imported (renamed from “${name}”) — ${items.length} item(s)`);
         } else {
-          await self._createListWithItems(list, items);
+          await self._createListWithItems(list, items, nextListOrder);
           added += items.length;
           log(`“${name}” created — ${items.length} item(s)`);
         }
@@ -872,9 +897,9 @@ const Transfer = {
     return rec;
   },
 
-  async _createListWithItems(list, items) {
+  // nextOrder(): optional allocator for the sidebar position of an active list
+  async _createListWithItems(list, items, nextOrder) {
     const ref = DB.lists().push();
-    const maxOrder = Math.max(-1, ...Object.values(State.lists || {}).filter((l) => !l.isArchived).map((l) => l.order ?? 0));
     const videos = {};
     // `items` is already in display order (export sorts ascending by `order`).
     // Assign ascending orders so index 0 stays on top — using -(i+1) here was
@@ -885,7 +910,8 @@ const Transfer = {
       emoji: list.emoji || Utils.autoEmoji(list.name),
       playlistId: list.playlistId || null,
       syncMode: list.syncMode || "none",
-      order: list.isArchived ? (list.order ?? 0) : maxOrder + 1,
+      order: list.isArchived ? (list.order ?? 0)
+        : (nextOrder ? nextOrder() : Math.max(-1, ...Object.values(State.lists || {}).filter((l) => !l.isArchived).map((l) => l.order ?? 0)) + 1),
       createdAt: list.createdAt || Date.now(),
       isArchived: !!list.isArchived,
       archivedAt: list.isArchived ? (Date.now()) : null,

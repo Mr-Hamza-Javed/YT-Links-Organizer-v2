@@ -17,18 +17,27 @@ const StatusBar = {
 
   init() {
     const saved = localStorage.getItem("ylo_statusbar");
+    let parsed = null;
     if (saved) {
-      try { this.config = JSON.parse(saved); } catch (e) { this.config = null; }
+      try { parsed = JSON.parse(saved); } catch (e) { parsed = null; }
     }
-    if (!this.config) {
-      this.config = this.ALL_CHIPS.map((c) => ({ key: c.key, enabled: true }));
-    }
-    // ensure all known chips are represented (for forward-compat)
-    this.ALL_CHIPS.forEach((c) => {
-      if (!this.config.find((x) => x.key === c.key)) this.config.push({ key: c.key, enabled: true });
-    });
+    if (!this.setConfig(parsed)) this.setConfig(this.ALL_CHIPS.map((c) => ({ key: c.key, enabled: true })));
     document.getElementById("statusGear").addEventListener("click", () => this.openConfig());
     this.render();
+  },
+
+  // Accepts a saved/imported config; keeps only known chips (in the given
+  // order) and appends any missing ones. Returns false if it isn't usable.
+  setConfig(cfg) {
+    if (!Array.isArray(cfg)) return false;
+    const out = [];
+    cfg.forEach((c) => {
+      if (c && this.meta(c.key) && !out.some((x) => x.key === c.key)) out.push({ key: c.key, enabled: c.enabled !== false });
+    });
+    if (!out.length) return false;
+    this.ALL_CHIPS.forEach((c) => { if (!out.some((x) => x.key === c.key)) out.push({ key: c.key, enabled: true }); });
+    this.config = out;
+    return true;
   },
 
   saveConfig() { localStorage.setItem("ylo_statusbar", JSON.stringify(this.config)); },

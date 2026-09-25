@@ -29,11 +29,11 @@ const Templates = {
       url: `https://www.youtube.com/watch?v=${video.youtubeId}`,
       channel: video.channelName || "",
       duration: video.duration || "",
-      views: video.views || "0",
+      views: Utils.displayCount(video.views, video.viewCountRaw),
       viewsRaw: video.viewCountRaw ?? 0,
       published: Utils.timeAgo(video.publishedAt),
       publishedDate: Utils.formatDate(video.publishedAt),
-      subscribers: video.subscribers || "0",
+      subscribers: Utils.displayCount(video.subscribers, video.subscriberCountRaw),
       subscribersRaw: video.subscriberCountRaw ?? 0,
       thumbnail: video.thumbnail || "",
       note: video.note || "",
@@ -199,7 +199,8 @@ const Templates = {
             row.querySelector('[data-act="del"]').addEventListener("click", async () => {
               const ok = await UI.confirm({ title: "Delete template?", message: "This copy format will be removed.", confirmText: "Delete" });
               if (!ok) return;
-              await DB.template(id).remove();
+              try { await DB.template(id).remove(); }
+              catch (e) { UI.toast("Couldn't delete template: " + e.message, "error"); return; }
               if (editingId === id) clearEditor();
               setTimeout(renderList, 50);
             });
@@ -210,7 +211,8 @@ const Templates = {
               onEnd: async () => {
                 const ids = [...els.list.querySelectorAll(".tpl-item")].map((r) => r.dataset.id);
                 const updates = {}; ids.forEach((id, i) => updates[`${id}/order`] = i);
-                await DB.templates().update(updates);
+                try { await DB.templates().update(updates); }
+                catch (e) { UI.toast("Couldn't save template order: " + e.message, "error"); }
               },
             });
           }
@@ -229,14 +231,16 @@ const Templates = {
           const name = els.name.value.trim();
           if (!name) { UI.toast("Template needs a name", "error"); els.name.focus(); return; }
           const payload = { name, text: els.code.value, isActive: els.active.checked, timestamp: Date.now() };
-          if (editingId) {
-            await DB.template(editingId).update(payload);
-          } else {
-            const ref = DB.templates().push();
-            payload.order = self.ordered().length;
-            await ref.set(payload);
-            editingId = ref.key;
-          }
+          try {
+            if (editingId) {
+              await DB.template(editingId).update(payload);
+            } else {
+              const ref = DB.templates().push();
+              payload.order = self.ordered().length;
+              await ref.set(payload);
+              editingId = ref.key;
+            }
+          } catch (e) { UI.toast("Couldn't save template: " + e.message, "error"); return; }
           UI.toast("Template saved", "success");
           setTimeout(renderList, 60);
         });
@@ -279,8 +283,8 @@ const Templates = {
           <p>Run JS with <code>!%{ ...code... }%!</code>. With no <code>return</code> the expression is evaluated; otherwise it runs as a function body. Variables are resolved <em>before</em> the JS runs.</p>
           <pre class="tpl-code-eg mono">!%{ viewsRaw > 1000000 ? "🔥 viral" : "normal" }%!</pre>
           <pre class="tpl-code-eg mono">!%{
-  const mins = Math.round(!%{viewsRaw}%! / 0); 
-  return "approx " + mins;
+  const k = Math.round(!%{viewsRaw}%! / 1000);
+  return "approx " + k + "K views";
 }%!</pre>
 
           <h3>Error fallback</h3>

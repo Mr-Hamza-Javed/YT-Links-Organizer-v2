@@ -298,9 +298,10 @@ const Videos = {
     const avatar = v.channelThumbnailUrl
       ? `<img class="vcard__avatar" src="${Utils.escapeHtml(v.channelThumbnailUrl)}" alt="" referrerpolicy="no-referrer" />`
       : `<div class="vcard__avatar placeholder">${Utils.escapeHtml((v.channelName||"?").charAt(0).toUpperCase())}</div>`;
+    const subs = Utils.displayCount(v.subscribers, v.subscriberCountRaw);
     const stats = [
-      `${v.views || "0"} views`,
-      v.subscribers && v.subscribers !== "0" ? `${v.subscribers} subs` : null,
+      `${Utils.displayCount(v.views, v.viewCountRaw)} views`,
+      subs !== "0" ? `${subs} subs` : null,
       Utils.timeAgo(v.publishedAt),
     ].filter(Boolean).join(" • ");
     return `
@@ -371,8 +372,10 @@ const Videos = {
     const stat = (n, label) =>
       `<div class="vchan__stat"><span class="vchan__stat-n">${Utils.escapeHtml(n)}</span><span class="vchan__stat-l">${label}</span></div>`;
     const statCells = [];
-    if (v.subscribers && v.subscribers !== "0") statCells.push(stat(v.subscribers, "Subscribers"));
-    if (v.videoCount && v.videoCount !== "0") statCells.push(stat(v.videoCount, "Videos"));
+    const subs = Utils.displayCount(v.subscribers, v.subscriberCountRaw);
+    const vcount = Utils.displayCount(v.videoCount, v.videoCountRaw);
+    if (subs !== "0") statCells.push(stat(subs, "Subscribers"));
+    if (vcount !== "0") statCells.push(stat(vcount, "Videos"));
     const statsHtml = statCells.length ? `<div class="vchan__stats">${statCells.join("")}</div>` : "";
     return `
       <div class="vcard vcard--channel ${hasNote ? "has-note" : ""}" data-id="${v._key || v.id}" data-channel-item="1"
@@ -449,11 +452,13 @@ const Videos = {
 
   updateCardNoteState(vid) {
     const card = document.querySelector(`.vcard[data-id="${vid}"]`);
-    if (!card) return;
+    // note cards have no "note" indicator button (they ARE the note) — nothing to update
+    if (!card || card.dataset.note === "1") return;
+    const btn = card.querySelector(".vcard__note-btn");
+    if (!btn) return;
     const v = State.videos[vid];
     const hasNote = !!(v && v.note && v.note.trim());
     card.classList.toggle("has-note", hasNote);
-    const btn = card.querySelector(".vcard__note-btn");
     btn.classList.toggle("has-note", hasNote);
     btn.title = hasNote ? "Open note" : "Add note";
     btn.innerHTML = hasNote
@@ -687,18 +692,23 @@ const Videos = {
     finally { UI.hideLoading(); }
   },
 
-  async refreshChannel(vid) {
-    const v = State.videos[vid];
+  // opts (used by the list-wide refresh): { listId, video, silent, skipRecent }
+  async refreshChannel(vid, opts = {}) {
+    const listId = opts.listId || State.activeListId;
+    const v = State.videos[vid] || opts.video;
     if (!v || v.type !== "channel") return;
-    UI.showLoading("Refreshing channel…");
+    const FORTY_EIGHT = 48 * 3600 * 1000;
+    if (opts.skipRecent && v.lastUpdated && (Date.now() - v.lastUpdated) < FORTY_EIGHT) return;
+    if (!opts.silent) UI.showLoading("Refreshing channel…");
     try {
       const data = await YT.fetchChannelData(v.channelId || v.customUrl || v.title);
-      if (!data) { UI.toast("Channel unavailable on YouTube — kept existing data", "info"); return; }
-      delete data.order;
-      await DB.video(State.activeListId, vid).update(data);
-      UI.toast("Channel refreshed", "success", 1500);
-    } catch (e) { UI.toast("Refresh failed: " + e.message, "error"); }
-    finally { UI.hideLoading(); }
+      if (!data) { if (!opts.silent) UI.toast("Channel unavailable on YouTube — kept existing data", "info"); return; }
+      // never overwrite the user's own fields (order, note, custom properties)
+      delete data.order; delete data.note; delete data.pvals;
+      await DB.video(listId, vid).update(data);
+      if (!opts.silent) UI.toast("Channel refreshed", "success", 1500);
+    } catch (e) { if (!opts.silent) UI.toast("Refresh failed: " + e.message, "error"); }
+    finally { if (!opts.silent) UI.hideLoading(); }
   },
 
   // ---------- CREATE A BLANK NOTE AND OPEN IT (Notion-style) ----------
@@ -727,8 +737,10 @@ const Videos = {
     if (!v) return;
     const name = await UI.prompt({ title: "Rename Note", label: "Note title", value: v.name || "", confirmText: "Rename" });
     if (name == null || !name.trim()) return;
-    await DB.video(State.activeListId, vid).update({ name: name.trim() });
-    UI.toast("Note renamed", "success", 1500);
+    try {
+      await DB.video(State.activeListId, vid).update({ name: name.trim() });
+      UI.toast("Note renamed", "success", 1500);
+    } catch (e) { UI.toast("Couldn't rename note: " + e.message, "error"); }
   },
 
   // ---------- DELETE ----------
@@ -739,8 +751,11 @@ const Videos = {
     const titleMap = { note: "Delete note?", channel: "Delete channel?", video: "Delete video?" };
     const ok = await UI.confirm({ title: titleMap[kind], message: `“${Utils.escapeHtml(String(label).slice(0,80))}” will be removed from this list.`, confirmText: "Delete" });
     if (!ok) return;
-    await DB.video(State.activeListId, vid).remove();
-    UI.toast("Video deleted", "success", 1500);
+    const doneMap = { note: "Note deleted", channel: "Channel deleted", video: "Video deleted" };
+    try {
+      await DB.video(State.activeListId, vid).remove();
+      UI.toast(doneMap[kind], "success", 1500);
+    } catch (e) { UI.toast(`Couldn't delete ${kind}: ${e.message}`, "error"); }
   },
 
   // ---------- MOVE ----------
@@ -784,6 +799,8 @@ const Videos = {
     const v = State.videos[vid] || opts.video;
     if (!v) return;
     if (v.type === "note") return; // notes have no YouTube data to refresh
+    // channel items are refreshed from the channels API — never as a video
+    if (v.type === "channel") return this.refreshChannel(vid, { listId, video: v, silent: opts.silent, skipRecent: !opts.force });
     const FORTY_EIGHT = 48 * 3600 * 1000;
     if (!opts.force && v.lastUpdated && (Date.now() - v.lastUpdated) < FORTY_EIGHT) {
       if (!opts.silent) UI.toast("Already up to date (refreshed within 48h)", "info");
@@ -817,16 +834,17 @@ const Videos = {
     }
     const snap = await DB.videos(listId).once("value");
     const vids = snap.val() || {};
-    const ids = Object.keys(vids);
+    // notes have nothing to refresh; videos and channels do
+    const ids = Object.keys(vids).filter((k) => vids[k] && typeof vids[k] === "object" && vids[k].type !== "note");
     if (!ids.length) { UI.toast("No videos to refresh", "info"); return; }
-    UI.showLoading(`Refreshing ${ids.length} videos…`);
+    UI.showLoading(`Refreshing ${ids.length} item${ids.length !== 1 ? "s" : ""}…`);
     let done = 0;
     try {
       for (const vid of ids) {
         await this.refreshVideo(vid, { listId, video: vids[vid], silent: true });
         done++;
       }
-      UI.toast(`Refreshed ${done} video${done !== 1 ? "s" : ""}`, "success");
+      UI.toast(`Refreshed ${done} item${done !== 1 ? "s" : ""}`, "success");
     } catch (e) { UI.toast("Some refreshes failed: " + e.message, "error"); }
     finally { UI.hideLoading(); }
   },

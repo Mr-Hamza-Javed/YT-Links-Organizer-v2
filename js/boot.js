@@ -41,10 +41,8 @@ const App = {
     let mode = localStorage.getItem("ylo_theme_mode");
     // migrate the old single-value setting, if present
     if (!family || !mode) {
-      const old = localStorage.getItem("ylo_theme");
-      const map = { midnight: "indigo", graphite: "graphite", forest: "forest", dusk: "amber", dawn: "amber", mist: "ocean" };
-      if (old === "light" || old === "dark" || old === "system") { mode = mode || old; family = family || "classic"; }
-      else if (old && map[old]) { family = family || map[old]; mode = mode || (old === "dawn" || old === "mist" ? "light" : "dark"); }
+      const legacy = this.parseLegacyTheme(localStorage.getItem("ylo_theme"));
+      if (legacy) { family = family || legacy.family; mode = mode || legacy.mode; }
     }
     this.family = this.FAMILIES.some((f) => f.id === family) ? family : "classic";
     this.mode = this.MODES.includes(mode) ? mode : "system";
@@ -68,6 +66,28 @@ const App = {
     localStorage.setItem("ylo_theme_tint", this.tint ? "on" : "off");
     State.theme = this.mode; // kept for backward compatibility
     this.renderThemeControls();
+  },
+
+  // Old single-value theme setting ("dark", "midnight", …) → { family, mode }.
+  // Used for the localStorage migration and for importing old export files.
+  parseLegacyTheme(old) {
+    const map = { midnight: "indigo", graphite: "graphite", forest: "forest", dusk: "amber", dawn: "amber", mist: "ocean" };
+    if (old === "light" || old === "dark" || old === "system") return { family: "classic", mode: old };
+    if (old && map[old]) return { family: map[old], mode: old === "dawn" || old === "mist" ? "light" : "dark" };
+    return null;
+  },
+
+  // Apply appearance settings from an export file. Newer exports carry
+  // themeFamily / themeMode / themeTint; older ones only a single `theme` value
+  // (a mode such as "dark", or an old theme name). Unknown values are ignored.
+  importAppearance(s) {
+    const legacy = this.parseLegacyTheme(s.theme);
+    const family = s.themeFamily || (legacy && legacy.family);
+    const mode = s.themeMode || (legacy && legacy.mode);
+    if (this.FAMILIES.some((f) => f.id === family)) this.family = family;
+    if (this.MODES.includes(mode)) this.mode = mode;
+    if (typeof s.themeTint === "boolean") this.tint = s.themeTint;
+    this.applyAppearance();
   },
 
   setMode(mode) { if (!this.MODES.includes(mode)) return; this.mode = mode; this.applyAppearance(); },
@@ -207,8 +227,9 @@ const App = {
       const t = e.target;
       // ignore if focused in an input/textarea/contenteditable
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
-      // ignore if a modal is already open
-      if (document.querySelector("#modalHost .modal-overlay")) return;
+      // ignore if a modal / confirm is already open, or the note editor covers the list
+      if (document.querySelector("#modalHost .modal-overlay, #confirmHost .modal-overlay")) return;
+      if (document.body.classList.contains("editor-open")) return;
       if (!State.uid || !State.activeListId) return;
       const text = (e.clipboardData || window.clipboardData).getData("text");
       if (!text) return;

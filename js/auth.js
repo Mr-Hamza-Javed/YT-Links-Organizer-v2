@@ -81,6 +81,26 @@ const Auth = {
     catch (e) { UI.toast("Sign-out failed", "error"); }
   },
 
+  // The initial-letter span must survive every sign-in: the photo is added as a
+  // sibling <img> (never by replacing the chip's innerHTML), so signing out and
+  // back in without a reload still finds #userInitial.
+  _renderUserChip(user) {
+    const chip = document.getElementById("userChip");
+    const initialEl = document.getElementById("userInitial");
+    chip.querySelectorAll("img").forEach((img) => img.remove());
+    initialEl.textContent = (user.displayName || user.email || "U").trim().charAt(0).toUpperCase();
+    initialEl.hidden = false;
+    if (user.photoURL) {
+      const img = document.createElement("img");
+      img.alt = "";
+      img.referrerPolicy = "no-referrer";
+      img.addEventListener("error", () => { img.remove(); initialEl.hidden = false; });
+      img.src = user.photoURL;
+      initialEl.hidden = true;
+      chip.appendChild(img);
+    }
+  },
+
   onAuthChange(user) {
     const signInBtn = document.getElementById("signInBtn");
     const userChip = document.getElementById("userChip");
@@ -96,12 +116,7 @@ const Auth = {
       signInBtn.hidden = true;
       userChip.hidden = false;
       createBtn.style.display = "";
-      // user chip
-      const initial = (user.displayName || user.email || "U").trim().charAt(0).toUpperCase();
-      document.getElementById("userInitial").textContent = initial;
-      if (user.photoURL) {
-        document.getElementById("userChip").innerHTML = `<img src="${user.photoURL}" alt="" referrerpolicy="no-referrer" />`;
-      }
+      this._renderUserChip(user);
       document.getElementById("userName").textContent = user.displayName || user.email || "User";
       document.getElementById("userUid").textContent = user.uid;
       // boot the app data
