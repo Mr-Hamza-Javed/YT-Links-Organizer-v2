@@ -194,7 +194,8 @@ const Videos = {
     this._domListId = null;
     grid.className = "video-grid";
     grid.innerHTML = Array.from({ length: n }, () =>
-      '<div class="sk-card" aria-hidden="true"><div class="sk-thumb"></div><div class="sk-body"><div class="sk-line"></div><div class="sk-line sk-line--short"></div></div></div>').join("");
+      '<div class="sk-card" aria-hidden="true"><div class="sk-thumb"></div><div class="sk-body"><div class="sk-avatar"></div>'
+      + '<div class="sk-lines"><div class="sk-line sk-line--title"></div><div class="sk-line sk-line--short"></div><div class="sk-line sk-line--tiny"></div></div></div></div>').join("");
     document.getElementById("gridEmpty").hidden = true;
     const se = document.getElementById("searchEmpty");
     if (se) se.hidden = true;
