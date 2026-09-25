@@ -89,14 +89,27 @@ const Utils = {
     n = Number(n);
     if (isNaN(n)) return "0";
     const abs = Math.abs(n);
-    const fmt = (val, suffix) => {
-      const r = val < 10 ? Math.round(val * 10) / 10 : Math.round(val);
+    const round = (val) => (Math.abs(val) < 10 ? Math.round(val * 10) / 10 : Math.round(val));
+    const units = [[1e9, "B"], [1e6, "M"], [1e3, "K"]];
+    for (let i = 0; i < units.length; i++) {
+      const [base, suffix] = units[i];
+      if (abs < base) continue;
+      const r = round(n / base);
+      // 999,999 rounds to "1000K" — step up to the next unit ("1M") instead
+      if (Math.abs(r) >= 1000 && i > 0) return `${round(n / units[i - 1][0])}${units[i - 1][1]}`;
       return `${r}${suffix}`;
-    };
-    if (abs >= 1e9) return fmt(n / 1e9, "B");
-    if (abs >= 1e6) return fmt(n / 1e6, "M");
-    if (abs >= 1e3) return fmt(n / 1e3, "K");
+    }
     return String(n);
+  },
+
+  // Display a stored count. Older records saved an already-formatted string
+  // (e.g. "1000K"); when the raw number is also stored, re-format from it so
+  // existing data shows correctly without rewriting anything in the database.
+  displayCount(formatted, raw) {
+    if (formatted === "—") return "—";            // hidden subscriber count
+    const r = Number(raw);
+    if (raw != null && raw !== "" && isFinite(r) && r > 0) return this.formatCount(r);
+    return formatted == null || formatted === "" ? "0" : String(formatted);
   },
 
   // ---------- date → "3 days ago" ----------

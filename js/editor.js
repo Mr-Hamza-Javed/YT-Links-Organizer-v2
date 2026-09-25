@@ -562,16 +562,19 @@
       if (item.type === "channel") {
         const av = item.channelThumbnailUrl || item.thumbnail || "";
         if (av) rows.push(`<div class="ed-prop"><span class="ed-prop__k">📺 Channel</span><span class="ed-prop__v"><img class="ed-prop__avatar" src="${esc(av)}" referrerpolicy="no-referrer"/> ${esc(item.channelName || item.title || "")}</span></div>`);
-        add("🔔", "Subscribers", (item.subscribers && item.subscribers !== "0") ? `${item.subscribers} subscribers` : "");
-        add("🎬", "Videos", (item.videoCount && item.videoCount !== "0") ? `${item.videoCount} videos` : "");
+        const subs = Utils.displayCount(item.subscribers, item.subscriberCountRaw);
+        const vcount = Utils.displayCount(item.videoCount, item.videoCountRaw);
+        add("🔔", "Subscribers", subs !== "0" ? `${subs} subscribers` : "");
+        add("🎬", "Videos", vcount !== "0" ? `${vcount} videos` : "");
         add("📅", "Joined", item.publishedAt ? Utils.formatDate(item.publishedAt) : "");
         const url = item.channelId ? `https://www.youtube.com/channel/${item.channelId}` : (item.customUrl ? `https://www.youtube.com/${item.customUrl}` : "");
         if (url) link = `<div class="ed-prop"><a class="ed-prop__link" href="${esc(url)}" target="_blank" rel="noopener">📺 Open on YouTube</a></div>`;
       } else {
         add("📺", "Channel", item.channelName || "");
-        add("👁", "Views", item.views ? `${item.views} views` : "");
+        add("👁", "Views", item.views ? `${Utils.displayCount(item.views, item.viewCountRaw)} views` : "");
         add("⏱", "Duration", item.duration || "");
-        add("🔔", "Subscribers", (item.subscribers && item.subscribers !== "0") ? `${item.subscribers} subs` : "");
+        const vsubs = Utils.displayCount(item.subscribers, item.subscriberCountRaw);
+        add("🔔", "Subscribers", vsubs !== "0" ? `${vsubs} subs` : "");
         add("📅", "Published", item.publishedAt ? Utils.formatDate(item.publishedAt) : "");
         if (item.youtubeId) link = `<div class="ed-prop"><a class="ed-prop__link" href="https://www.youtube.com/watch?v=${esc(item.youtubeId)}" target="_blank" rel="noopener">▶ Watch on YouTube</a></div>`;
       }

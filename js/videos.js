@@ -5,16 +5,25 @@
 const Videos = {
   sortable: null,
   _videoRef: null,
+  _detailRefs: [],     // list-record listener of the open list (index mode)
   _dragVideoId: null,
   _dropListId: null,
   _lastAutoSync: {},   // listId -> timestamp of last automatic reconcile
   _autoSyncing: {},    // listId -> bool (in-flight guard)
 
+  detachListeners() {
+    if (this._videoRef) { this._videoRef.off(); this._videoRef = null; }
+    this._detailRefs.forEach((r) => r.off());
+    this._detailRefs = [];
+  },
+
   // ---------- select & load a list ----------
+  // Downloads ONLY this list's items (and, in index mode, its small view /
+  // props settings) — other lists' videos are never loaded here.
   selectList(listId) {
     if (!State.lists[listId]) return;
-    // detach old listener
-    if (this._videoRef) { this._videoRef.off(); this._videoRef = null; }
+    // detach old listeners
+    this.detachListeners();
     State.activeListId = listId;
     State.videos = {};
 
@@ -36,6 +45,47 @@ const Videos = {
     // keep sync/pull lists in step with their YouTube playlist
     this.autoReconcile(listId);
 
+    // In index mode the view / props settings aren't in the sidebar index, so
+    // they come from a listener on the list record itself. It is attached
+    // BEFORE the videos listener, so Firebase downloads the list once and
+    // serves the videos listener from the same data. The handler reads only
+    // the small children (never materialises the videos). The grid renders
+    // once both have arrived (no flash of an ungrouped grid).
+    const indexMode = Lists.indexMode;
+    const got = { videos: false, meta: !indexMode };
+    const ready = () => got.videos && got.meta;
+    const renderAll = () => { this.render(); if (window.StatusBar) StatusBar.render(); };
+    if (indexMode) {
+      const listRef = DB.list(listId);
+      this._detailRefs.push(listRef);
+      let lastMeta = null;
+      listRef.on("value", (snap) => {
+        if (State.activeListId !== listId) return;
+        const first = !got.meta;
+        got.meta = true;
+        if (!snap.exists()) {
+          // list removed — if it wasn't this app, let the index catch up
+          Lists.onActiveListGone(listId);
+          if (first && ready()) renderAll();
+          return;
+        }
+        const raw = {};
+        Lists.INDEX_FIELDS.forEach((f) => { raw[f] = snap.child(f).val(); });
+        const meta = Lists.pickMeta(raw);
+        Lists.healActiveMeta(listId, meta, lastMeta);
+        lastMeta = meta;
+        const l = State.lists[listId];
+        const prevView = l ? l.view : undefined, prevProps = l ? l.props : undefined;
+        const view = snap.child("view").val(), props = snap.child("props").val();
+        Lists.setDetail(listId, "view", view);
+        Lists.setDetail(listId, "props", props);
+        if (!ready()) return;
+        // own writes (already applied locally) and no-op echoes don't re-render
+        const lNow = State.lists[listId];
+        if (first || !Lists.sameDetail("view", prevView, view, lNow) || !Lists.sameDetail("props", prevProps, props, lNow)) renderAll();
+      });
+    }
+
     this._videoRef = DB.videos(listId);
     this._videoRef.on("value", (snap) => {
       const all = snap.val() || {};
@@ -50,9 +100,11 @@ const Videos = {
         State.videos[vid] = v;
       });
       // keep sidebar counts fresh
-      if (State.lists[listId]) State.lists[listId]._count = Object.keys(State.videos).length;
-      this.render();
-      if (window.StatusBar) StatusBar.render();
+      const n = Object.keys(State.videos).length;
+      if (State.lists[listId]) State.lists[listId]._count = n;
+      Lists.setCount(listId, n);
+      got.videos = true;
+      if (ready()) renderAll();
 
       // one-time cleanup of orphan nodes left by an earlier bug (never touch notes)
       const orphans = Object.entries(all).filter(([k, v]) =>
@@ -298,9 +350,10 @@ const Videos = {
     const avatar = v.channelThumbnailUrl
       ? `<img class="vcard__avatar" src="${Utils.escapeHtml(v.channelThumbnailUrl)}" alt="" referrerpolicy="no-referrer" />`
       : `<div class="vcard__avatar placeholder">${Utils.escapeHtml((v.channelName||"?").charAt(0).toUpperCase())}</div>`;
+    const subs = Utils.displayCount(v.subscribers, v.subscriberCountRaw);
     const stats = [
-      `${v.views || "0"} views`,
-      v.subscribers && v.subscribers !== "0" ? `${v.subscribers} subs` : null,
+      `${Utils.displayCount(v.views, v.viewCountRaw)} views`,
+      subs !== "0" ? `${subs} subs` : null,
       Utils.timeAgo(v.publishedAt),
     ].filter(Boolean).join(" • ");
     return `
@@ -371,8 +424,10 @@ const Videos = {
     const stat = (n, label) =>
       `<div class="vchan__stat"><span class="vchan__stat-n">${Utils.escapeHtml(n)}</span><span class="vchan__stat-l">${label}</span></div>`;
     const statCells = [];
-    if (v.subscribers && v.subscribers !== "0") statCells.push(stat(v.subscribers, "Subscribers"));
-    if (v.videoCount && v.videoCount !== "0") statCells.push(stat(v.videoCount, "Videos"));
+    const subs = Utils.displayCount(v.subscribers, v.subscriberCountRaw);
+    const vcount = Utils.displayCount(v.videoCount, v.videoCountRaw);
+    if (subs !== "0") statCells.push(stat(subs, "Subscribers"));
+    if (vcount !== "0") statCells.push(stat(vcount, "Videos"));
     const statsHtml = statCells.length ? `<div class="vchan__stats">${statCells.join("")}</div>` : "";
     return `
       <div class="vcard vcard--channel ${hasNote ? "has-note" : ""}" data-id="${v._key || v.id}" data-channel-item="1"
@@ -449,11 +504,13 @@ const Videos = {
 
   updateCardNoteState(vid) {
     const card = document.querySelector(`.vcard[data-id="${vid}"]`);
-    if (!card) return;
+    // note cards have no "note" indicator button (they ARE the note) — nothing to update
+    if (!card || card.dataset.note === "1") return;
+    const btn = card.querySelector(".vcard__note-btn");
+    if (!btn) return;
     const v = State.videos[vid];
     const hasNote = !!(v && v.note && v.note.trim());
     card.classList.toggle("has-note", hasNote);
-    const btn = card.querySelector(".vcard__note-btn");
     btn.classList.toggle("has-note", hasNote);
     btn.title = hasNote ? "Open note" : "Add note";
     btn.innerHTML = hasNote
@@ -687,18 +744,23 @@ const Videos = {
     finally { UI.hideLoading(); }
   },
 
-  async refreshChannel(vid) {
-    const v = State.videos[vid];
+  // opts (used by the list-wide refresh): { listId, video, silent, skipRecent }
+  async refreshChannel(vid, opts = {}) {
+    const listId = opts.listId || State.activeListId;
+    const v = State.videos[vid] || opts.video;
     if (!v || v.type !== "channel") return;
-    UI.showLoading("Refreshing channel…");
+    const FORTY_EIGHT = 48 * 3600 * 1000;
+    if (opts.skipRecent && v.lastUpdated && (Date.now() - v.lastUpdated) < FORTY_EIGHT) return;
+    if (!opts.silent) UI.showLoading("Refreshing channel…");
     try {
       const data = await YT.fetchChannelData(v.channelId || v.customUrl || v.title);
-      if (!data) { UI.toast("Channel unavailable on YouTube — kept existing data", "info"); return; }
-      delete data.order;
-      await DB.video(State.activeListId, vid).update(data);
-      UI.toast("Channel refreshed", "success", 1500);
-    } catch (e) { UI.toast("Refresh failed: " + e.message, "error"); }
-    finally { UI.hideLoading(); }
+      if (!data) { if (!opts.silent) UI.toast("Channel unavailable on YouTube — kept existing data", "info"); return; }
+      // never overwrite the user's own fields (order, note, custom properties)
+      delete data.order; delete data.note; delete data.pvals;
+      await DB.video(listId, vid).update(data);
+      if (!opts.silent) UI.toast("Channel refreshed", "success", 1500);
+    } catch (e) { if (!opts.silent) UI.toast("Refresh failed: " + e.message, "error"); }
+    finally { if (!opts.silent) UI.hideLoading(); }
   },
 
   // ---------- CREATE A BLANK NOTE AND OPEN IT (Notion-style) ----------
@@ -727,8 +789,10 @@ const Videos = {
     if (!v) return;
     const name = await UI.prompt({ title: "Rename Note", label: "Note title", value: v.name || "", confirmText: "Rename" });
     if (name == null || !name.trim()) return;
-    await DB.video(State.activeListId, vid).update({ name: name.trim() });
-    UI.toast("Note renamed", "success", 1500);
+    try {
+      await DB.video(State.activeListId, vid).update({ name: name.trim() });
+      UI.toast("Note renamed", "success", 1500);
+    } catch (e) { UI.toast("Couldn't rename note: " + e.message, "error"); }
   },
 
   // ---------- DELETE ----------
@@ -739,8 +803,11 @@ const Videos = {
     const titleMap = { note: "Delete note?", channel: "Delete channel?", video: "Delete video?" };
     const ok = await UI.confirm({ title: titleMap[kind], message: `“${Utils.escapeHtml(String(label).slice(0,80))}” will be removed from this list.`, confirmText: "Delete" });
     if (!ok) return;
-    await DB.video(State.activeListId, vid).remove();
-    UI.toast("Video deleted", "success", 1500);
+    const doneMap = { note: "Note deleted", channel: "Channel deleted", video: "Video deleted" };
+    try {
+      await DB.video(State.activeListId, vid).remove();
+      UI.toast(doneMap[kind], "success", 1500);
+    } catch (e) { UI.toast(`Couldn't delete ${kind}: ${e.message}`, "error"); }
   },
 
   // ---------- MOVE ----------
@@ -766,6 +833,7 @@ const Videos = {
       const record = { ...v, order: minOrder - 1, timestamp: Date.now() };
       delete record.id; delete record._key;
       await DB.videos(destListId).push().set(record);
+      Lists.setCount(destListId, Lists.countItems(destVids) + 1);   // source is open → its listener updates it
       await DB.video(srcListId, vid).remove();
       UI.toast(`Moved to “${Utils.stripLeadingEmoji(dest.name) || dest.name}”`, "success");
       // a sync/pull source mirrors its playlist — pull the video right back
@@ -784,6 +852,8 @@ const Videos = {
     const v = State.videos[vid] || opts.video;
     if (!v) return;
     if (v.type === "note") return; // notes have no YouTube data to refresh
+    // channel items are refreshed from the channels API — never as a video
+    if (v.type === "channel") return this.refreshChannel(vid, { listId, video: v, silent: opts.silent, skipRecent: !opts.force });
     const FORTY_EIGHT = 48 * 3600 * 1000;
     if (!opts.force && v.lastUpdated && (Date.now() - v.lastUpdated) < FORTY_EIGHT) {
       if (!opts.silent) UI.toast("Already up to date (refreshed within 48h)", "info");
@@ -817,16 +887,17 @@ const Videos = {
     }
     const snap = await DB.videos(listId).once("value");
     const vids = snap.val() || {};
-    const ids = Object.keys(vids);
+    // notes have nothing to refresh; videos and channels do
+    const ids = Object.keys(vids).filter((k) => vids[k] && typeof vids[k] === "object" && vids[k].type !== "note");
     if (!ids.length) { UI.toast("No videos to refresh", "info"); return; }
-    UI.showLoading(`Refreshing ${ids.length} videos…`);
+    UI.showLoading(`Refreshing ${ids.length} item${ids.length !== 1 ? "s" : ""}…`);
     let done = 0;
     try {
       for (const vid of ids) {
         await this.refreshVideo(vid, { listId, video: vids[vid], silent: true });
         done++;
       }
-      UI.toast(`Refreshed ${done} video${done !== 1 ? "s" : ""}`, "success");
+      UI.toast(`Refreshed ${done} item${done !== 1 ? "s" : ""}`, "success");
     } catch (e) { UI.toast("Some refreshes failed: " + e.message, "error"); }
     finally { UI.hideLoading(); }
   },
@@ -874,8 +945,10 @@ const Videos = {
 
       // new videos to add (by youtubeId)
       const toAdd = playlistIds.filter((id) => !existingYt.has(id));
+      let fetchedCount = 0;
       if (toAdd.length) {
         const fetched = await YT.fetchManyVideos(toAdd);
+        fetchedCount = fetched.length;
         let minOrder = Math.min(0, ...Object.values(existing).map((v) => v.order ?? 0));
         // push each new video under a fresh push key
         for (const data of fetched) {
@@ -893,6 +966,8 @@ const Videos = {
         });
         if (Object.keys(updates).length) await DB.videos(listId).update(updates);
       }
+      // the open list's listener keeps its own count; update others here
+      if (listId !== State.activeListId) Lists.setCount(listId, Lists.countItems(existing) - removed + fetchedCount);
       if (!silent) UI.toast(`Playlist synced — ${toAdd.length} added${removed ? `, ${removed} removed` : ""}`, "success");
       return { added: toAdd.length, removed };
     } catch (e) {

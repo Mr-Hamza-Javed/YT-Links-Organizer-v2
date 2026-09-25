@@ -97,14 +97,18 @@ const UI = {
       host.appendChild(overlay);
       const done = (val) => {
         overlay.remove();
-        document.removeEventListener("keydown", onKey);
+        document.removeEventListener("keydown", onKey, true);
         resolve(val);
       };
+      // Capture phase + stopPropagation: the confirm owns Esc/Enter while it is
+      // open, so the modal underneath (or the note editor) doesn't also react.
       const onKey = (e) => {
-        if (e.key === "Escape") { e.preventDefault(); done(false); }
-        if (e.key === "Enter") { e.preventDefault(); done(true); }
+        if (e.key !== "Escape" && e.key !== "Enter") return;
+        e.preventDefault();
+        e.stopPropagation();
+        done(e.key === "Enter");
       };
-      document.addEventListener("keydown", onKey);
+      document.addEventListener("keydown", onKey, true);
       overlay.querySelector('[data-act="ok"]').addEventListener("click", () => done(true));
       overlay.querySelector('[data-act="cancel"]').addEventListener("click", () => done(false));
       overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) done(false); });
