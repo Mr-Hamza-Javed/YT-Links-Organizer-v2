@@ -1,0 +1,39 @@
+{
+  // Firebase Realtime Database security rules for YouTube Link Organizer.
+  // Copy these into Firebase Console → Realtime Database → Rules → Publish
+  // (or deploy with the Firebase CLI). This file itself changes nothing.
+  "rules": {
+    "users": {
+      "$uid": {
+        // Only the signed-in owner can read / write their own data. This covers
+        // lists, templates, and the list index (listIndex, listIndexMeta) the
+        // app uses to load the sidebar quickly.
+        ".read": "auth != null && $uid === auth.uid",
+        ".write": "auth != null && $uid === auth.uid"
+      }
+    },
+
+    // Shared cache of YouTube channel avatar URLs (used by every user).
+    "channelThumbnails": {
+      // any signed-in user may read the cache
+      ".read": "auth != null",
+
+      "$channelId": {
+        // Signed-in users may add / update one channel's entry, but cannot
+        // delete entries or write to the whole cache at once.
+        ".write": "auth != null && newData.exists()",
+        // Only real YouTube channel IDs, and only { url, fetchedAt }.
+        ".validate": "$channelId.matches(/^UC[A-Za-z0-9_-]{22}$/) && newData.hasChildren(['url', 'fetchedAt'])",
+        // The URL must be a YouTube / Google image, so nobody can point other
+        // users' avatars at arbitrary sites.
+        "url": {
+          ".validate": "newData.isString() && newData.val().length <= 500 && newData.val().matches(/^https:\\/\\/(yt3\\.ggpht\\.com|yt3\\.googleusercontent\\.com|i\\.ytimg\\.com|lh3\\.googleusercontent\\.com)\\//)"
+        },
+        "fetchedAt": {
+          ".validate": "newData.isNumber() && newData.val() <= now + 60000"
+        },
+        "$other": { ".validate": false }
+      }
+    }
+  }
+}
