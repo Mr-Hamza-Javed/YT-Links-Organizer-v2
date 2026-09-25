@@ -77,6 +77,8 @@ const Auth = {
 
   async signOut() {
     UI.closeAllPopovers();
+    // remove this user's on-device list copies (privacy on shared devices)
+    if (typeof ListCache !== "undefined" && State.uid) await ListCache.clearUser(State.uid);
     try { await fbAuth.signOut(); UI.toast("Signed out", "info"); }
     catch (e) { UI.toast("Sign-out failed", "error"); }
   },

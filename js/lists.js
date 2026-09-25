@@ -148,6 +148,7 @@ const Lists = {
 
   // Shared tail of both listeners: render + keep a list selected.
   _afterListsChanged() {
+    Videos.pruneSubs();   // release live listeners of lists that are gone
     this.render();
     // select a list if none active
     if (!State.activeListId || !State.lists[State.activeListId]) {
@@ -273,7 +274,8 @@ const Lists = {
 
   // Delete a list (+ its index entry).
   async removeList(listId) {
-    return this.commit({ [`lists/${listId}`]: null, [`listIndex/${listId}`]: null });
+    await this.commit({ [`lists/${listId}`]: null, [`listIndex/${listId}`]: null });
+    if (typeof ListCache !== "undefined") ListCache.remove(State.uid, listId);
   },
 
   // Keep the sidebar count right after this app changed a list's items.
@@ -518,6 +520,12 @@ const Lists = {
       });
       const menuBtn = el.querySelector(".list-item__menu");
       if (menuBtn) menuBtn.addEventListener("click", (e) => { e.stopPropagation(); this.openListMenu(menuBtn, id); });
+      // start loading a list the moment the pointer rests on it / a finger
+      // touches it, so it's usually ready by the time the click lands
+      let hoverT = null;
+      el.addEventListener("mouseenter", () => { hoverT = setTimeout(() => Videos.prefetch(id), 150); });
+      el.addEventListener("mouseleave", () => clearTimeout(hoverT));
+      el.addEventListener("touchstart", () => Videos.prefetch(id), { passive: true });
     });
 
     this.renderReorderBanner();
