@@ -148,6 +148,7 @@ const Lists = {
 
   // Shared tail of both listeners: render + keep a list selected.
   _afterListsChanged() {
+    Videos.pruneSubs();   // release live listeners of lists that are gone
     this.render();
     // select a list if none active
     if (!State.activeListId || !State.lists[State.activeListId]) {

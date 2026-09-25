@@ -4,26 +4,154 @@
 
 const Videos = {
   sortable: null,
-  _videoRef: null,
-  _detailRefs: [],     // list-record listener of the open list (index mode)
   _dragVideoId: null,
   _dropListId: null,
   _lastAutoSync: {},   // listId -> timestamp of last automatic reconcile
   _autoSyncing: {},    // listId -> bool (in-flight guard)
 
+  /* ---------- live list subscriptions ----------
+     Each opened list keeps a live listener ("sub") so switching back to it is
+     instant and never re-downloads it. At most MAX_LIVE lists stay live (the
+     least recently used are released). */
+  _subs: {},           // listId -> { refs, all, gotVideos, gotMeta, view, props, lastMeta, used }
+  MAX_LIVE: 6,
+  _loading: false,     // skeleton on screen while the open list downloads
+
+  // stop every listener (sign-out)
   detachListeners() {
-    if (this._videoRef) { this._videoRef.off(); this._videoRef = null; }
-    this._detailRefs.forEach((r) => r.off());
-    this._detailRefs = [];
+    Object.keys(this._subs).forEach((id) => this._dropSub(id));
+    this._loading = false;
+  },
+
+  _dropSub(listId) {
+    const sub = this._subs[listId];
+    if (!sub) return;
+    sub.refs.forEach((r) => r.off());
+    delete this._subs[listId];
+  },
+
+  // release subs of lists that no longer exist / aren't shown
+  pruneSubs() {
+    Object.keys(this._subs).forEach((id) => { if (id !== State.activeListId && !State.lists[id]) this._dropSub(id); });
+  },
+
+  _evict() {
+    const ids = Object.keys(this._subs).filter((id) => id !== State.activeListId);
+    if (ids.length < this.MAX_LIVE) return;
+    ids.sort((a, b) => this._subs[a].used - this._subs[b].used);
+    while (ids.length >= this.MAX_LIVE) this._dropSub(ids.shift());
+  },
+
+  _isActive(sub) { return this._subs[sub.listId] === sub && State.activeListId === sub.listId; },
+  _ready(sub) { return sub.gotVideos && sub.gotMeta; },
+
+  // Start (or reuse) the live listeners of a list.
+  _ensureSub(listId) {
+    let sub = this._subs[listId];
+    if (sub) { sub.used = Date.now(); return sub; }
+    this._evict();
+    sub = { listId, uid: State.uid, refs: [], all: null, gotVideos: false, gotMeta: !Lists.indexMode, lastMeta: null, used: Date.now() };
+    this._subs[listId] = sub;
+    // In index mode view / props aren't in the sidebar index, so the list
+    // record itself is listened to. It is attached BEFORE the videos listener
+    // so Firebase downloads the list once and serves both from that data;
+    // its handler reads only the small children (never materialises videos).
+    if (Lists.indexMode) {
+      const listRef = DB.list(listId);
+      sub.refs.push(listRef);
+      listRef.on("value", (snap) => this._onListSnap(sub, snap));
+    }
+    const videosRef = DB.videos(listId);
+    sub.refs.push(videosRef);
+    videosRef.on("value", (snap) => this._onVideosSnap(sub, snap));
+    return sub;
+  },
+
+  _onListSnap(sub, snap) {
+    if (this._subs[sub.listId] !== sub) return;
+    const listId = sub.listId;
+    const first = !sub.gotMeta;
+    sub.gotMeta = true;
+    if (!snap.exists()) {
+      // list removed — if it wasn't this app, let the index catch up
+      Lists.onActiveListGone(listId);
+      if (first && this._isActive(sub) && this._ready(sub)) this._showLive(sub);
+      return;
+    }
+    const raw = {};
+    Lists.INDEX_FIELDS.forEach((f) => { raw[f] = snap.child(f).val(); });
+    const meta = Lists.pickMeta(raw);
+    Lists.healActiveMeta(listId, meta, sub.lastMeta);
+    sub.lastMeta = meta;
+    const view = snap.child("view").val(), props = snap.child("props").val();
+    sub.view = view; sub.props = props;
+    const l = State.lists[listId];
+    const prevView = l ? l.view : undefined, prevProps = l ? l.props : undefined;
+    Lists.setDetail(listId, "view", view);
+    Lists.setDetail(listId, "props", props);
+    if (!this._isActive(sub) || !this._ready(sub)) return;
+    // own writes (already applied locally) and no-op echoes don't re-render
+    const lNow = State.lists[listId];
+    if (first || this._loading || !Lists.sameDetail("view", prevView, view, lNow) || !Lists.sameDetail("props", prevProps, props, lNow)) this._showLive(sub);
+  },
+
+  _onVideosSnap(sub, snap) {
+    if (this._subs[sub.listId] !== sub) return;
+    const listId = sub.listId;
+    const all = snap.val() || {};
+    sub.all = all;
+    sub.gotVideos = true;
+    // keep sidebar counts fresh (live data of any subscribed list is exact)
+    Lists.setCount(listId, Lists.countItems(all));
+    if (this._isActive(sub) && this._ready(sub)) this._showLive(sub);
+  },
+
+  // raw list items → State.videos (skips orphan/corrupt nodes)
+  _buildState(all) {
+    State.videos = {};
+    Object.entries(all || {}).forEach(([vid, v]) => {
+      if (!v || typeof v !== "object") return;
+      if (v.type === "note") { v._key = vid; State.videos[vid] = v; return; }
+      if (v.type === "channel") { v._key = vid; State.videos[vid] = v; return; }
+      // skip orphan/corrupt nodes (e.g. {order:N} with no real video data)
+      if (!v.title && !v.thumbnail && !v.youtubeId) return;
+      v._key = vid; v.youtubeId = v.youtubeId || vid;
+      State.videos[vid] = v;
+    });
+  },
+
+  _showLive(sub) {
+    this._buildState(sub.all);
+    if (State.lists[sub.listId]) State.lists[sub.listId]._count = Object.keys(State.videos).length;
+    this._loading = false;
+    this.render();
+    if (window.StatusBar) StatusBar.render();
+
+    // one-time cleanup of orphan nodes left by an earlier bug (never touch notes)
+    const orphans = Object.entries(sub.all || {}).filter(([k, v]) =>
+      v && typeof v === "object" && v.type !== "note" && !v.title && !v.thumbnail && !v.youtubeId);
+    if (orphans.length) {
+      const upd = {}; orphans.forEach(([k]) => { upd[k] = null; });
+      DB.videos(sub.listId).update(upd).catch(() => {});
+    }
+  },
+
+  _renderSkeleton(listId) {
+    const grid = document.getElementById("videoGrid");
+    const l = State.lists[listId];
+    const count = l && typeof l.count === "number" ? l.count : 6;
+    const n = Math.min(8, Math.max(0, count));
+    grid.className = "video-grid";
+    grid.innerHTML = Array.from({ length: n }, () =>
+      '<div class="sk-card" aria-hidden="true"><div class="sk-thumb"></div><div class="sk-body"><div class="sk-line"></div><div class="sk-line sk-line--short"></div></div></div>').join("");
+    document.getElementById("gridEmpty").hidden = true;
   },
 
   // ---------- select & load a list ----------
-  // Downloads ONLY this list's items (and, in index mode, its small view /
-  // props settings) — other lists' videos are never loaded here.
+  // Only this list is downloaded (never all lists). Already-live lists show
+  // instantly; otherwise a loading skeleton shows until the data arrives.
   selectList(listId) {
     if (!State.lists[listId]) return;
-    // detach old listeners
-    this.detachListeners();
     State.activeListId = listId;
     State.videos = {};
 
@@ -45,75 +173,15 @@ const Videos = {
     // keep sync/pull lists in step with their YouTube playlist
     this.autoReconcile(listId);
 
-    // In index mode the view / props settings aren't in the sidebar index, so
-    // they come from a listener on the list record itself. It is attached
-    // BEFORE the videos listener, so Firebase downloads the list once and
-    // serves the videos listener from the same data. The handler reads only
-    // the small children (never materialises the videos). The grid renders
-    // once both have arrived (no flash of an ungrouped grid).
-    const indexMode = Lists.indexMode;
-    const got = { videos: false, meta: !indexMode };
-    const ready = () => got.videos && got.meta;
-    const renderAll = () => { this.render(); if (window.StatusBar) StatusBar.render(); };
-    if (indexMode) {
-      const listRef = DB.list(listId);
-      this._detailRefs.push(listRef);
-      let lastMeta = null;
-      listRef.on("value", (snap) => {
-        if (State.activeListId !== listId) return;
-        const first = !got.meta;
-        got.meta = true;
-        if (!snap.exists()) {
-          // list removed — if it wasn't this app, let the index catch up
-          Lists.onActiveListGone(listId);
-          if (first && ready()) renderAll();
-          return;
-        }
-        const raw = {};
-        Lists.INDEX_FIELDS.forEach((f) => { raw[f] = snap.child(f).val(); });
-        const meta = Lists.pickMeta(raw);
-        Lists.healActiveMeta(listId, meta, lastMeta);
-        lastMeta = meta;
-        const l = State.lists[listId];
-        const prevView = l ? l.view : undefined, prevProps = l ? l.props : undefined;
-        const view = snap.child("view").val(), props = snap.child("props").val();
-        Lists.setDetail(listId, "view", view);
-        Lists.setDetail(listId, "props", props);
-        if (!ready()) return;
-        // own writes (already applied locally) and no-op echoes don't re-render
-        const lNow = State.lists[listId];
-        if (first || !Lists.sameDetail("view", prevView, view, lNow) || !Lists.sameDetail("props", prevProps, props, lNow)) renderAll();
-      });
+    const sub = this._ensureSub(listId);
+    if (this._ready(sub)) {
+      if (Lists.indexMode) { Lists.setDetail(listId, "view", sub.view); Lists.setDetail(listId, "props", sub.props); }
+      this._showLive(sub);
+      return;
     }
-
-    this._videoRef = DB.videos(listId);
-    this._videoRef.on("value", (snap) => {
-      const all = snap.val() || {};
-      State.videos = {};
-      Object.entries(all).forEach(([vid, v]) => {
-        if (!v || typeof v !== "object") return;
-        if (v.type === "note") { v._key = vid; State.videos[vid] = v; return; }
-        if (v.type === "channel") { v._key = vid; State.videos[vid] = v; return; }
-        // skip orphan/corrupt nodes (e.g. {order:N} with no real video data)
-        if (!v.title && !v.thumbnail && !v.youtubeId) return;
-        v._key = vid; v.youtubeId = v.youtubeId || vid;
-        State.videos[vid] = v;
-      });
-      // keep sidebar counts fresh
-      const n = Object.keys(State.videos).length;
-      if (State.lists[listId]) State.lists[listId]._count = n;
-      Lists.setCount(listId, n);
-      got.videos = true;
-      if (ready()) renderAll();
-
-      // one-time cleanup of orphan nodes left by an earlier bug (never touch notes)
-      const orphans = Object.entries(all).filter(([k, v]) =>
-        v && typeof v === "object" && v.type !== "note" && !v.title && !v.thumbnail && !v.youtubeId);
-      if (orphans.length) {
-        const upd = {}; orphans.forEach(([k]) => { upd[k] = null; });
-        DB.videos(listId).update(upd).catch(() => {});
-      }
-    });
+    // first open in this session: skeleton until the data arrives
+    this._loading = true;
+    this._renderSkeleton(listId);
   },
 
   refreshActiveHeader() {

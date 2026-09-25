@@ -338,6 +338,19 @@ input[type="range"] { accent-color: var(--accent); }
   gap: 20px 18px; align-content: start;
 }
 
+/* ---------- loading: skeleton cards + read-only preview ---------- */
+/* Skeleton = a list opened for the first time on this device, data on its way. */
+.sk-card { background: var(--bg-elevated); border: 1px solid var(--border-soft); border-radius: var(--radius); overflow: hidden; }
+.sk-thumb, .sk-line {
+  background: linear-gradient(90deg, var(--bg-sunken) 25%, var(--bg-hover) 50%, var(--bg-sunken) 75%);
+  background-size: 200% 100%; animation: sk-shimmer 1.2s ease-in-out infinite;
+}
+.sk-thumb { aspect-ratio: 16/9; }
+.sk-body { padding: 13px 12px 15px; display: flex; flex-direction: column; gap: 8px; }
+.sk-line { height: 11px; border-radius: 6px; }
+.sk-line--short { width: 55%; }
+@keyframes sk-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+
 /* ---------- view bar (group / sort / filter) ---------- */
 .view-bar {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
