@@ -90,16 +90,19 @@
       Videos.__animWrapped = true;
     }
     // grid: stagger cards ONCE (first paint); afterwards a gentle whole-grid
-    // fade on re-render, so switching lists never re-cascades every card.
+    // fade only when a list is freshly shown (Videos._fadeNext) — live data
+    // updates (e.g. a note autosave) re-render without any flash.
     if (typeof Videos !== "undefined" && typeof Videos.render === "function" && !Videos.__renderWrapped) {
       var _vr = Videos.render.bind(Videos);
       Videos.render = function () {
         _vr();
         var g = document.getElementById("videoGrid");
         if (!g) return;
+        var fade = !!Videos._fadeNext;
+        Videos._fadeNext = false;
         g.classList.remove("a-stagger", "a-fade");
         if (firstGrid) { firstGrid = false; g.classList.add("a-stagger"); }
-        else if (!reduce) { void g.offsetWidth; g.classList.add("a-fade"); }
+        else if (fade && !reduce) { void g.offsetWidth; g.classList.add("a-fade"); }
       };
       Videos.__renderWrapped = true;
     }

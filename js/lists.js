@@ -514,7 +514,8 @@ const Lists = {
       const id = el.dataset.id;
       el.addEventListener("click", (e) => {
         if (e.target.closest(".list-item__menu") || e.target.closest(".list-item__handle")) return;
-        Videos.selectList(id);
+        // already open → nothing to reload (just close the mobile drawer)
+        if (id !== State.activeListId) Videos.selectList(id);
         if (window.innerWidth <= 820) App.closeDrawer();
       });
       const menuBtn = el.querySelector(".list-item__menu");

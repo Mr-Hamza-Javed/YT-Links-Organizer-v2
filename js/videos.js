@@ -27,6 +27,7 @@ const Videos = {
     const sub = this._subs[listId];
     if (!sub) return;
     sub.refs.forEach((r) => r.off());
+    sub.dom = null;
     delete this._subs[listId];
   },
 
@@ -50,7 +51,9 @@ const Videos = {
     let sub = this._subs[listId];
     if (sub) { sub.used = Date.now(); return sub; }
     this._evict();
-    sub = { listId, uid: State.uid, refs: [], all: null, gotVideos: false, gotMeta: !Lists.indexMode, lastMeta: null, used: Date.now() };
+    // rev: bumped whenever this list's shown data changes (videos, view, props);
+    // a kept grid (sub.dom) is only reused if it was built from the same rev
+    sub = { listId, uid: State.uid, refs: [], all: null, gotVideos: false, gotMeta: !Lists.indexMode, lastMeta: null, used: Date.now(), rev: 0, dom: null };
     this._subs[listId] = sub;
     // In index mode view / props aren't in the sidebar index, so the list
     // record itself is listened to. It is attached BEFORE the videos listener
@@ -89,10 +92,12 @@ const Videos = {
     const prevView = l ? l.view : undefined, prevProps = l ? l.props : undefined;
     Lists.setDetail(listId, "view", view);
     Lists.setDetail(listId, "props", props);
-    if (!this._isActive(sub) || !this._ready(sub)) return;
-    // own writes (already applied locally) and no-op echoes don't re-render
+    // own writes (already applied locally) and no-op echoes change nothing
     const lNow = State.lists[listId];
-    if (first || this._loading || !Lists.sameDetail("view", prevView, view, lNow) || !Lists.sameDetail("props", prevProps, props, lNow)) this._showLive(sub);
+    const changed = !Lists.sameDetail("view", prevView, view, lNow) || !Lists.sameDetail("props", prevProps, props, lNow);
+    if (changed) sub.rev++;
+    if (!this._isActive(sub) || !this._ready(sub)) return;
+    if (first || this._loading || changed) this._showLive(sub);
   },
 
   _onVideosSnap(sub, snap) {
@@ -101,6 +106,7 @@ const Videos = {
     const all = snap.val() || {};
     sub.all = all;
     sub.gotVideos = true;
+    sub.rev++;
     // keep sidebar counts fresh (live data of any subscribed list is exact)
     Lists.setCount(listId, Lists.countItems(all));
     if (this._isActive(sub) && this._ready(sub)) this._showLive(sub);
@@ -120,7 +126,51 @@ const Videos = {
     });
   },
 
-  _showLive(sub) {
+  // Move the grid's cards out of the page into the list's sub (kept only while
+  // the list stays live and only if the grid shows its current data).
+  _stashGrid(listId) {
+    const sub = this._subs[listId];
+    if (!sub || this._loading || this._domListId !== listId || this._domRev !== sub.rev) return;
+    const grid = document.getElementById("videoGrid");
+    if (!grid.firstChild) return;
+    const frag = document.createDocumentFragment();
+    while (grid.firstChild) frag.appendChild(grid.firstChild);
+    sub.dom = { frag, rev: sub.rev, className: grid.className.split(/\s+/).filter((c) => c && !c.startsWith("a-")).join(" ") };
+    this._domListId = null;
+  },
+
+  // Put a kept grid back. Returns false (→ normal render) if it's outdated.
+  _restoreGrid(sub) {
+    const dom = sub.dom;
+    sub.dom = null;
+    if (!dom || dom.rev !== sub.rev) return false;
+    this._buildState(sub.all);
+    if (!Object.keys(State.videos).length) return false;
+    const list = State.lists[sub.listId] || {};
+    const fields = Grouping.resolveFields(list);
+    const view = Grouping.normalize(list.view, fields);
+    this._view = view;
+    this._fields = fields;
+    const grid = document.getElementById("videoGrid");
+    grid.className = dom.className;
+    grid.replaceChildren(dom.frag);
+    document.getElementById("gridEmpty").hidden = true;
+    this.renderViewBar(view, fields);
+    this.applySearchFilter();          // the search box may have changed meanwhile
+    if (dom.className.includes("video-grouped")) { this.teardownSortable(); this.setupGroupSortable(view); }
+    else if (view.sort.field === "manual") this.setupSortable();
+    else this.teardownSortable();
+    this._domListId = sub.listId;
+    this._domRev = sub.rev;
+    this._loading = false;
+    if (State.lists[sub.listId]) State.lists[sub.listId]._count = Object.keys(State.videos).length;
+    if (window.StatusBar) StatusBar.render();
+    return true;
+  },
+
+  // opts.fade: animate this render (list switch); live updates don't flash
+  _showLive(sub, opts = {}) {
+    if (opts.fade) this._fadeNext = true;
     this._buildState(sub.all);
     if (State.lists[sub.listId]) State.lists[sub.listId]._count = Object.keys(State.videos).length;
     this._loading = false;
@@ -141,6 +191,7 @@ const Videos = {
     const l = State.lists[listId];
     const count = l && typeof l.count === "number" ? l.count : 6;
     const n = Math.min(8, Math.max(0, count));
+    this._domListId = null;
     grid.className = "video-grid";
     grid.innerHTML = Array.from({ length: n }, () =>
       '<div class="sk-card" aria-hidden="true"><div class="sk-thumb"></div><div class="sk-body"><div class="sk-line"></div><div class="sk-line sk-line--short"></div></div></div>').join("");
@@ -152,6 +203,8 @@ const Videos = {
   // instantly; otherwise a loading skeleton shows until the data arrives.
   selectList(listId) {
     if (!State.lists[listId]) return;
+    // keep the grid of the list we're leaving, so coming back is instant
+    if (State.activeListId && State.activeListId !== listId) this._stashGrid(State.activeListId);
     State.activeListId = listId;
     State.videos = {};
 
@@ -176,11 +229,13 @@ const Videos = {
     const sub = this._ensureSub(listId);
     if (this._ready(sub)) {
       if (Lists.indexMode) { Lists.setDetail(listId, "view", sub.view); Lists.setDetail(listId, "props", sub.props); }
-      this._showLive(sub);
+      // same cards (and already-loaded thumbnails) back in place, or a fresh render
+      if (!this._restoreGrid(sub)) this._showLive(sub, { fade: true });
       return;
     }
     // first open in this session: skeleton until the data arrives
     this._loading = true;
+    this._fadeNext = true;
     this._renderSkeleton(listId);
   },
 
@@ -220,6 +275,10 @@ const Videos = {
   // ---------- render grid ----------
   render() {
     const grid = document.getElementById("videoGrid");
+    // the grid is rebuilt from the open list's current data
+    const openSub = this._subs[State.activeListId];
+    this._domListId = openSub && !this._loading ? State.activeListId : null;
+    this._domRev = openSub ? openSub.rev : null;
     const empty = document.getElementById("gridEmpty");
     const viewBar = document.getElementById("viewBar");
     const vids = this.orderedVideos();
